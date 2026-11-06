@@ -144,6 +144,12 @@ A imagem do bot precisa rodar na arquitetura escolhida (x86 no E2.1.Micro, ARM n
 
 - **Bot, API e Postgres em uma única VM** (direção proposta em 2026-11-04): elimina o limite de CPU e o de horas do banco, mas concentra tudo em uma máquina que pode ser reclaimed e obriga a operar o banco. O usuário preferiu API e front na Cloudflare e banco em outro provedor gratuito.
 - **Bot na Cloudflare:** descartado. Containers não existem no plano Free, e Durable Objects não garantem a conexão de saída.
+- **Sem VM, com um Worker agendado consultando [`GET /guilds/{guild.id}/voice-states/{user.id}`](https://docs.discord.com/developers/resources/voice.md) a cada minuto:** descartado por decisão do usuário. Decisão: seguir com o bot conectado; a consulta fica como opção a rever se a hospedagem da VM falhar. Motivos (fontes consultadas em 2026-11-06):
+  - A documentação do Discord não oferece voz por [webhook](https://docs.discord.com/developers/events/webhook-events); só pelo Gateway.
+  - A precisão fica em cerca de 1 min.
+  - O Workers Free tem [50 subrequests por invocação e 5 Cron Triggers por conta](https://developers.cloudflare.com/workers/platform/limits/), e não há endpoint que liste todos os estados de voz de um servidor. Isso limita a escala numa Fase 1 aberta.
+  - O backup precisaria sair da VM.
+  - Nunca testados: a resposta para quem não está em call e se o bot precisa ter conectado ao Gateway.
 
 ## Pendências
 
