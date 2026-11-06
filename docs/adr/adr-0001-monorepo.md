@@ -1,5 +1,7 @@
 # ADR 0001: Monorepo TypeScript (pnpm workspaces + Turborepo)
 
+> **Nota (2026-11-06):** a referência a Fastify foi substituída pelo [ADR 0010](adr-0010-api-cloudflare-workers.md).
+
 - **Status:** Aceito
 - **Data:** 2026-11-04
 - **Fase:** 1

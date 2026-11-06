@@ -1,5 +1,7 @@
 # ADR 0003: Autenticação com JWT (access token curto + refresh token rotativo)
 
+> **Nota (2026-11-06):** o item 6 será resolvido pelo ADR 0011 (planejado). A conta sem Discord está decidida, e só a forma de login dela segue em aberto: ver "Decisões em aberto" no [README](../../README.md#decisões-em-aberto).
+
 - **Status:** Aceito
 - **Data:** 2026-11-04
 - **Fase:** 1
