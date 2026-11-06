@@ -2,7 +2,7 @@
 
 > Nome provisório. Controle de hábitos de estudo com salas de estudo integradas ao Discord: registre o tempo manualmente, por um timer no site ou automaticamente em canal de voz, e acompanhe a evolução por semana, mês, trimestre, semestre e ano, além dos horários em que você mais e menos estuda.
 
-**Status:** Fase 0 em andamento (só o workspace mínimo com `apps/bot`, ainda sem lógica de Discord). Hospedagem e regras de produto decididas em 2026-11-06; o provedor final do bot segue pendente até a F0-06.
+**Status:** Fase 0 em andamento (`apps/bot` loga entrada, saída e troca de canal de voz no console, sem gravar nada). Hospedagem e regras de produto decididas em 2026-11-06; o provedor final do bot segue pendente até a F0-06.
 
 ## Problema e motivação
 
@@ -66,13 +66,13 @@ flowchart LR
 
 SPA e API no mesmo Worker é uma possibilidade a provar na F0-07.
 
-Estrutura do repositório. Hoje só existem `apps/bot` (ponto de entrada mínimo) e `docs/`; o restante está marcado como planejado:
+Estrutura do repositório. Hoje só existem `apps/bot` (spike de log de voz) e `docs/`; o restante está marcado como planejado:
 
 ```
 apps/
   web/      # planejado: SPA
   api/      # planejado: API HTTP (Hono em Cloudflare Workers)
-  bot/      # bot do Discord (ponto de entrada mínimo; container planejado)
+  bot/      # bot do Discord (spike de log de voz; container planejado)
 packages/   # planejado
   shared/   # planejado: schemas Zod, tipos, lógica pura (streak, fatiamento de sessões)
   db/       # planejado: schema e migrations
@@ -93,15 +93,16 @@ docs/
 
 ## Como rodar
 
-Hoje só existe o workspace mínimo. Requer Node 24 (`>=24.19.0`) e pnpm 11.22.0, fixados em `package.json`:
+Hoje só existe o spike do bot. Requer Node 24 (`>=24.19.0`) e pnpm 11.22.0, fixados em `package.json`, e um `.env` na raiz, copiado do `.env.example` e preenchido:
 
 ```
 pnpm install --frozen-lockfile
 pnpm typecheck
+pnpm test
 pnpm --filter @studyrooms/bot start
 ```
 
-O último comando só imprime uma linha e termina, pois o bot ainda não conecta ao Discord. As variáveis previstas estão documentadas em `.env.example`.
+O último comando conecta ao Discord e fica rodando até `Ctrl+C`. O bot precisa ter sido convidado com o escopo `bot` e poder ver o canal de voz.
 
 Meta, **ainda não disponível** (o `compose` e o Wrangler não existem no repositório):
 
