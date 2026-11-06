@@ -2,7 +2,7 @@
 
 > Nome provisório. Controle de hábitos de estudo com salas de estudo integradas ao Discord: registre o tempo manualmente, por um timer no site ou automaticamente em canal de voz, e acompanhe a evolução por semana, mês, trimestre, semestre e ano, além dos horários em que você mais e menos estuda.
 
-**Status:** Fase 0 em planejamento (nenhum código ainda). Hospedagem e regras de produto decididas em 2026-11-06; o provedor final do bot segue pendente até a F0-06.
+**Status:** Fase 0 em andamento (só o workspace mínimo com `apps/bot`, ainda sem lógica de Discord). Hospedagem e regras de produto decididas em 2026-11-06; o provedor final do bot segue pendente até a F0-06.
 
 ## Problema e motivação
 
@@ -66,17 +66,17 @@ flowchart LR
 
 SPA e API no mesmo Worker é uma possibilidade a provar na F0-07.
 
-Estrutura do repositório:
+Estrutura do repositório. Hoje só existem `apps/bot` (ponto de entrada mínimo) e `docs/`; o restante está marcado como planejado:
 
 ```
 apps/
-  web/      # SPA
-  api/      # API HTTP (Hono em Cloudflare Workers)
-  bot/      # bot do Discord (container)
-packages/
-  shared/   # schemas Zod, tipos, lógica pura (streak, fatiamento de sessões)
-  db/       # schema e migrations
-  config/   # tsconfig, eslint, prettier
+  web/      # planejado: SPA
+  api/      # planejado: API HTTP (Hono em Cloudflare Workers)
+  bot/      # bot do Discord (ponto de entrada mínimo; container planejado)
+packages/   # planejado
+  shared/   # planejado: schemas Zod, tipos, lógica pura (streak, fatiamento de sessões)
+  db/       # planejado: schema e migrations
+  config/   # planejado: tsconfig, eslint, prettier
 docs/
   adr/          # decisões de arquitetura
   planejamento/ # roadmap
@@ -93,7 +93,17 @@ docs/
 
 ## Como rodar
 
-Em construção. Meta, com um `.env.example` documentado:
+Hoje só existe o workspace mínimo. Requer Node 24 (`>=24.19.0`) e pnpm 11.22.0, fixados em `package.json`:
+
+```
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm --filter @studyrooms/bot start
+```
+
+O último comando só imprime uma linha e termina, pois o bot ainda não conecta ao Discord. As variáveis previstas estão documentadas em `.env.example`.
+
+Meta, **ainda não disponível** (o `compose` e o Wrangler não existem no repositório):
 
 1. Iniciar o Docker (abaixo).
 2. `docker compose up` sobe o banco local e o bot.
@@ -120,7 +130,7 @@ O motor é o Docker Engine dentro da distro WSL `docker-engine`. **O início é 
 - Conventional Commits
 - ADRs em `docs/adr/` para cada decisão relevante
 - TDD na lógica de streak e fatiamento de sessões (virada de meia-noite, fusos, horário de verão, sessões órfãs)
-- CI no GitHub Actions: lint, typecheck, testes
+- CI no GitHub Actions: lint, typecheck e testes serão adicionados na F1-03
 - Kanban no GitHub Projects com milestones por fase
 
 ## ADRs
