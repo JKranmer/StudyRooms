@@ -2,7 +2,7 @@
 
 > Nome provisório. Controle de hábitos de estudo com salas de estudo integradas ao Discord: registre o tempo manualmente, por um timer no site ou automaticamente em canal de voz, e acompanhe a evolução por semana, mês, trimestre, semestre e ano, além dos horários em que você mais e menos estuda.
 
-**Status:** Fase 0 em planejamento (nenhum código ainda). Hospedagem e principais regras de produto decididas em 2026-11-06.
+**Status:** Fase 0 em planejamento (nenhum código ainda). Hospedagem e regras de produto decididas em 2026-11-06; o provedor final do bot segue pendente até a F0-06.
 
 ## Problema e motivação
 
@@ -17,17 +17,17 @@ O diferencial é a integração com o Discord: quem estuda em um canal de voz te
 Aberta a qualquer pessoa, sem allowlist.
 
 - **Três formas de registrar tempo:**
-  - **Manual**, inclusive retroativa;
-  - **Timer no site**, enquanto a aplicação está aberta, sem precisar vincular o Discord (o que acontece com o tempo ao fechar o site está em [Decisões em aberto](#decisões-em-aberto));
+  - **Manual**, com início e fim, inclusive retroativa; pode ser corrigido e excluído;
+  - **Timer no site**, enquanto a aplicação está aberta, sem precisar vincular o Discord; ao fechar o site, o tempo é guardado até o último sinal recebido;
   - **Discord**, pelo bot, que registra quem está na call e por quanto tempo.
-- Login com Discord (OAuth2) e vínculo do `discord_id`. Também haverá conta sem Discord; a forma de login dela está em aberto (ver [Decisões em aberto](#decisões-em-aberto))
+- Login por **Google e Discord** (OAuth2), sem e-mail e senha: a conta sem Discord entra por Google, e o login com Discord vincula o `discord_id`. Detalhes no ADR de login (F1-45)
 - Bot em **vários servidores**: a pessoa escolhe em qual colocá-lo, e o `guild_id` é guardado
 - Só o canal AFK fica de fora do cálculo
 - **Sem limite de duração de sessão:** pode durar 24 h, se não for para o AFK
-- Timer e call simultâneos contam uma vez: união dos intervalos, com os dois registros brutos preservados
-- **Streak** no fuso do usuário: o dia conta com 15 min, incluindo sessões que cruzam a meia-noite, e o dia de hoje só quebra a streak ao terminar
+- Tempo sobreposto entre timer, call e registro manual conta uma vez: união dos intervalos, com os registros brutos preservados
+- **Streak** no fuso do usuário: o dia conta com 15 min, incluindo sessões que cruzam a meia-noite, e o dia de hoje só quebra a streak ao terminar. Tempo manual retroativo conta, marcado como manual
 - Dashboard por período de calendário (semana de domingo a sábado, mês, trimestre, semestre, ano) e **mapa de calor por dia da semana × hora**
-- Consentimento explícito e obrigatório para a coleta pelo bot
+- Consentimento explícito e obrigatório para a coleta pelo bot, global na Fase 1, com o servidor de origem visível em cada registro do bot. Quem recusa usa timer e registro manual; só o bot fica de fora
 
 ### Fase 2: tempo real (depois da Fase 1 em produção)
 - Presença nas salas, timer sincronizado entre dispositivos, ranking ao vivo
@@ -39,9 +39,9 @@ Aberta a qualquer pessoa, sem allowlist.
 |---|---|---|
 | Repositório | Monorepo pnpm workspaces + Turborepo | [ADR 0001](docs/adr/adr-0001-monorepo.md) |
 | Front-end | React + Vite + TypeScript (SPA), TanStack Router/Query, Tailwind, shadcn/ui, na Cloudflare | [ADR 0002](docs/adr/adr-0002-spa.md), [ADR 0004](docs/adr/adr-0004-hospedagem.md) |
-| Autenticação | Discord OAuth2 + JWT (access curto + refresh rotativo) | [ADR 0003](docs/adr/adr-0003-jwt.md) |
+| Autenticação | Google OAuth + Discord OAuth2 + JWT (access curto + refresh rotativo) | [ADR 0003](docs/adr/adr-0003-jwt.md); ADR de login (F1-45) |
 | API | Hono (sujeito à prova) + Zod (OpenAPI gerado dos schemas) em Cloudflare Workers | [ADR 0010](docs/adr/adr-0010-api-cloudflare-workers.md) |
-| Banco | PostgreSQL + Drizzle ORM; Neon via Hyperdrive como primeira opção | [ADR 0004](docs/adr/adr-0004-hospedagem.md) |
+| Banco | PostgreSQL + Drizzle ORM; Neon via Hyperdrive | [ADR 0004](docs/adr/adr-0004-hospedagem.md) |
 | Bot | discord.js (intent `guild_voice_states`; a F0-03 confirma se `guilds` também é necessária), em container; VM Oracle Always Free como primeira opção | [ADR 0004](docs/adr/adr-0004-hospedagem.md), a confirmar pela F0-06 |
 | Testes | Vitest, Testing Library, Playwright, Testcontainers | planejado |
 | Infra | Wrangler, Docker (bot e banco local), GitHub Actions, hospedagem gratuita | [ADR 0004](docs/adr/adr-0004-hospedagem.md) |
@@ -61,6 +61,7 @@ flowchart LR
     A --> H[Hyperdrive]
     H --> P[(PostgreSQL<br/>Neon)]
     A -. OAuth2 .-> O[Discord OAuth2]
+    A -. OAuth .-> GO[Google OAuth]
 ```
 
 SPA e API no mesmo Worker é uma possibilidade a provar na F0-07.
@@ -84,9 +85,9 @@ docs/
 ## Decisões de modelagem (princípios)
 
 - **Tempo sempre em UTC no banco.** O fuso IANA do usuário fica no perfil e é aplicado apenas na leitura (streak, agregações, mapa de calor).
-- **Dado bruto preservado.** Guardamos os registros como foram observados e aplicamos as regras (canal AFK, união de intervalos, mínimo de 15 min) na hora do cálculo, para poder mudar o critério sem perder histórico.
+- **Dado bruto preservado.** Guardamos os registros como foram observados e aplicamos as regras (canal AFK, união de intervalos, mínimo de 15 min) na hora do cálculo, para poder mudar o critério sem perder histórico. A exceção é o registro manual, que a própria pessoa pode corrigir e excluir.
 - **Só o necessário.** O bot grava quem está na call e por quanto tempo. Mudo e transmissão não são gravados; por isso, um critério baseado neles não poderia ser aplicado ao histórico depois.
-- **Sessões órfãs.** Se o bot cair com alguém na call, o evento de saída se perde. A inicialização reconcilia o estado atual da call com as sessões abertas, e as órfãs são fechadas conforme o ADR 0007. Sinais frequentes não podem tocar o banco a cada envio ([ADR 0004](docs/adr/adr-0004-hospedagem.md)).
+- **Sessões órfãs.** Se o bot cair com alguém na call, o evento de saída se perde. A inicialização reconcilia o estado atual da call com as sessões abertas, e as órfãs são fechadas conforme o ADR 0007. Sinais frequentes não tocam o banco a cada envio: o sinal fica em memória na VM, com gravação periódica a cada 30 min ([ADR 0004](docs/adr/adr-0004-hospedagem.md)).
 - **Operações idempotentes.** Parar uma sessão duas vezes não cria dois registros.
 - **Sem histórico retroativo de voz.** O Discord não informa o tempo passado em call; os dados de voz começam quando o bot entra no servidor. Tempo anterior só entra pelo registro manual.
 
@@ -129,7 +130,7 @@ O motor é o Docker Engine dentro da distro WSL `docker-engine`. **O início é 
 | [0001](docs/adr/adr-0001-monorepo.md) | Monorepo TypeScript | Aceito |
 | [0002](docs/adr/adr-0002-spa.md) | SPA com React + Vite | Aceito |
 | [0003](docs/adr/adr-0003-jwt.md) | Autenticação com JWT | Aceito |
-| [0004](docs/adr/adr-0004-hospedagem.md) | Hospedagem gratuita | Aceito, com ressalvas: provedor do bot a confirmar pela F0-06; provedor do banco (Neon é recomendação) a confirmar pelo usuário |
+| [0004](docs/adr/adr-0004-hospedagem.md) | Hospedagem gratuita | Aceito, com ressalva: provedor final do bot a confirmar pela F0-06 |
 | 0005 | Modelo de sessões: dado bruto, regras na leitura | Planejado |
 | 0006 | Estratégia de fuso horário | Planejado |
 | 0007 | Reconciliação de sessões órfãs do bot | Planejado |
@@ -140,9 +141,8 @@ O motor é o Docker Engine dentro da distro WSL `docker-engine`. **O início é 
 
 ## Decisões em aberto
 
-- **Forma de login da conta sem Discord.** A conta sem Discord está decidida, mas o ADR 0003 só prevê login por Discord; falta definir como essa conta entra. E-mail e senha é problemático no Workers gratuito, pois hash forte de senha não caberia em 10 ms de CPU (relatos de terceiros, a confirmar). Direção a avaliar: OAuth (por exemplo, Google) mais Discord.
-- **Timer ao fechar o site.** Sugestão: guardar até o último sinal recebido.
-- **Tempo manual retroativo na streak.** Sugestão: conta, marcado como manual.
+- **Provedor final do bot.** Oracle Always Free é a primeira opção; a decisão sai com o resultado da F0-06.
+- **Destino do backup.** O dump roda pela VM; o destino depende de levantamento ainda pendente.
 
 ## Roadmap
 
@@ -158,6 +158,6 @@ _A preencher ao longo do projeto._
 
 ## Privacidade
 
-O bot só registra tempo de quem vinculou a conta ao site e aceitou o acompanhamento, e grava apenas presença e duração em call. Nenhuma mensagem é lida, e a intent de conteúdo de mensagens não é usada.
+O bot só registra tempo de quem vinculou a conta ao site e aceitou o acompanhamento, e grava apenas presença e duração em call. Nenhuma mensagem é lida, e a intent de conteúdo de mensagens não é usada. Quem recusa o consentimento continua usando timer e registro manual.
 
 Revogar o consentimento para a coleta e mantém o histórico. Excluir a conta apaga tudo, com backups expirando em até 30 dias.
