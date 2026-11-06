@@ -24,13 +24,15 @@ Restrição definida pelo autor: **apenas planos gratuitos** na versão 1. Mais 
 | Banco | Neon, via Hyperdrive | Escolha confirmada pelo usuário |
 | Bot | VM gratuita. Oracle Always Free como primeira opção; Northflank Sandbox e Google e2-micro como alternativas | VM gratuita: recomendação da equipe, aceita pelo usuário. Oracle: recomendação da equipe, a confirmar pela F0-06 |
 
-**Possível vantagem a provar:** servir a SPA e a API no mesmo Worker, no domínio `workers.dev`, resolvendo o cookie de refresh na mesma origem e sem comprar domínio. Isso **não foi confirmado** nas páginas de planos lidas. A página do Hono documenta o recurso Static Assets no Worker, mas não trata do fallback de rotas da SPA nem do cookie. A F0-07 prova. Se falhar, a topologia do cookie volta a ser uma decisão do usuário.
+**Possível vantagem a provar:** servir a SPA e a API no mesmo Worker, no domínio `workers.dev`, resolvendo o cookie de refresh na mesma origem e sem comprar domínio. O fallback da SPA e as rotas da API estão [documentados](https://developers.cloudflare.com/workers/static-assets/) (ver Levantamento). O comportamento de `Set-Cookie` em `workers.dev` **não está documentado** nas páginas lidas. A F0-07 prova. Se falhar, a topologia do cookie volta a ser uma decisão do usuário.
 
 **O bot não guarda estado durável:** os dados ficam no banco, e perder a VM significa subir de novo. Ao voltar, a reconciliação recupera quem está na call. Ela **não** recupera quem entrou e saiu durante a queda, porque o Discord não informa tempo passado. O tratamento do tempo da queda fica no ADR 0007.
 
 ## Levantamento
 
 Consultado em **2026-11-06**, nas páginas oficiais. Os planos gratuitos mudam: reconfirme antes de depender de qualquer número abaixo.
+
+**Cartão (F0-05):** a Oracle pede cartão só para verificação, o que atende ao critério 3. Na Cloudflare, **não confirmado**: a [página de criação de conta](https://developers.cloudflare.com/fundamentals/account/create-account/) não cita cartão, o que não prova que ele nunca seja pedido.
 
 ### Cloudflare
 
@@ -39,16 +41,17 @@ Consultado em **2026-11-06**, nas páginas oficiais. Os planos gratuitos mudam: 
 | Workers Free | 100.000 requisições/dia e 10 ms de CPU por invocação | Atende à API, com o cuidado do ADR 0010 | [pricing](https://developers.cloudflare.com/workers/platform/pricing/) |
 | Containers | "N/A" no plano Free; incluídos no Workers Paid de US$ 5/mês | Fora da versão 1 | [pricing](https://developers.cloudflare.com/containers/pricing/) |
 | Durable Objects | WebSocket de saída impede a remoção por até 15 min e "may remain open" depois, sem garantia; não há hibernação para saída | Não serve para o Gateway do bot | [websockets](https://developers.cloudflare.com/durable-objects/best-practices/websockets/) |
-| Hyperdrive | Incluído no Free, 100.000 consultas/dia, exige Postgres externo. Driver recomendado: node-postgres, com `nodejs_compat`. A página de conexão lida não cita o Neon; a página /hyperdrive/ cita Neon e Supabase como suportados | Ligação entre Workers e Neon | [pricing](https://developers.cloudflare.com/hyperdrive/platform/pricing/), [visão geral](https://developers.cloudflare.com/hyperdrive/) |
+| Hyperdrive | "included in both the Free and Paid Workers plans" (página atualizada em jun/2026), 100.000 consultas/dia, exige Postgres externo. Driver recomendado: node-postgres, com `nodejs_compat`. A Cloudflare tem página de exemplo para o Neon. **Conflito:** o guia do Neon diz "You need to be on Cloudflare Workers' paid subscription plan to use Hyperdrive" | Ligação entre Workers e Neon, com o plano gratuito a provar na F0-10 | [pricing](https://developers.cloudflare.com/hyperdrive/platform/pricing/), [exemplo Neon](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-database-providers/neon/), [guia do Neon](https://neon.com/docs/guides/cloudflare-hyperdrive) |
+| Static Assets | `not_found_handling = "single-page-application"` e `run_worker_first` para `/api/*`. Assets são gratuitos e ilimitados, mas rotas com `run_worker_first` recebem 429 ao passar do limite gratuito | SPA e API no mesmo Worker estão documentados; o cookie fica para a F0-07 | [static assets](https://developers.cloudflare.com/workers/static-assets/) |
 | D1 | Limite de 500 MB por banco no Free. A consulta não confirmou que seja SQLite; só que não é apresentado como Postgres | Descartado para manter Postgres e Drizzle | [limits](https://developers.cloudflare.com/d1/platform/limits/) |
 
 ### Bot (hospedagem sempre ligada)
 
 | Opção | Grátis? | Sempre ligado? | Observações | Fonte |
 |---|---|---|---|---|
-| Oracle Always Free | Sim, "for the life of the account" | Sim | E2.1.Micro (até 2, 1 GB) ou Ampere A1 (2 OCPU, 12 GB no total). "Idle Always Free compute instances may be reclaimed": em 7 dias, CPU p95 < 20%, rede < 20% e (só A1) memória < 20%. Bot quieto pode cair nisso. "out of host capacity" é possível. Cartão: não confirmado (a página de oferta deu 403) | [Oracle](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm) |
-| Northflank Sandbox | "Free", "No card needed" | "Always on, no sleeping" | 2 serviços, compute "Limited". Prazo não informado. A página exibe aviso de incidente de segurança pedindo rotação de credenciais: avaliar antes de usar | [Northflank](https://northflank.com/pricing) |
-| Google Cloud e2-micro | Sem data de fim, com aviso de 30 dias | Sim | Só regiões dos EUA, 30 GB de disco, 1 GB de saída. Exige conta de faturamento. Custo de IPv4 externo não confirmado; excedente é cobrado | [Google](https://docs.cloud.google.com/free/docs/free-cloud-features) |
+| Oracle Always Free | Sim, "for the life of the account" | Sim | E2.1.Micro (até 2, 1 GB) ou Ampere A1 (2 OCPU, 12 GB no total). "Idle Always Free compute instances may be reclaimed": em 7 dias, CPU p95 < 20%, rede < 20% e (só A1) memória < 20%. Bot quieto pode cair nisso. "out of host capacity" é possível. Cartão: "most users need a mobile phone number and a credit card"; "will not be charged unless you upgrade", com possível "verification hold" temporário. Riscos em [Oracle Always Free](#oracle-always-free) | [Always Free](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm), [Free Tier](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier.htm), [cadastro](https://docs.oracle.com/en-us/iaas/Content/GSG/Tasks/signingup_topic-Sign_Up_for_Free_Oracle_Cloud_Promotion.htm) |
+| Northflank Sandbox | "Free", "No card needed" | "Always on, no sleeping" | 2 serviços, imagem Docker própria incluída, compute "Limited", sem número. Prazo não informado. Não confirmado se aceita serviço sem tráfego de entrada. **Ponto contra até esclarecer:** banner "Northflank has experienced a security incident... Please rotate all user defined credentials", sem data, enquanto a página /security diz nunca ter havido brecha | [Northflank](https://northflank.com/pricing) |
+| Google Cloud e2-micro | Sem data de fim, com aviso de 30 dias | Sim | Só regiões dos EUA, 30 GB de disco, 1 GB de saída. Exige conta de faturamento. Custo de IPv4 externo não confirmado: a página de preços de rede não carregou; excedente é cobrado | [Google](https://docs.cloud.google.com/free/docs/free-cloud-features) |
 | Koyeb Free | "forever free" | Não: vai a zero após 1 h sem tráfego de entrada, sem desativar | Exige cartão, com retenção de US$ 29 | [preços](https://www.koyeb.com/docs/faqs/pricing), [scale-to-zero](https://www.koyeb.com/docs/run-and-scale/scale-to-zero) |
 | Render Free | Sim | Não: dorme após 15 min sem entrada; workers não são gratuitos | | [Render](https://render.com/docs/free) |
 | Railway Free | US$ 1 de crédito/mês | RAM a US$ 10/GB/mês: provavelmente não cobre 24 h (estimativa nossa) | | [Railway](https://docs.railway.com/reference/pricing/plans) |
@@ -56,6 +59,10 @@ Consultado em **2026-11-06**, nas páginas oficiais. Os planos gratuitos mudam: 
 | AWS | Crédito de até US$ 200 por 6 meses; depois a conta é suspensa | | | [AWS](https://aws.amazon.com/free/) |
 | Azure | 12 meses; VM específica não confirmada | | | [Azure](https://azure.microsoft.com/en-us/pricing/free-services) |
 | GitHub Actions | Termos: só para "develop and test"; bot 24/7 fica fora | | | [Termos](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features) |
+
+### Discord
+
+Desde 10/06/2026, a [revisão de intents privilegiadas](https://docs.discord.com/developers/gateway/getting-started-with-privileged-intent-review.md) é por usuários (10.000), não por servidores, e o projeto não usa intents privilegiadas. O limite de servidores para bot sem verificação **não foi confirmado**: a página de suporte deu 403.
 
 ### Banco
 
@@ -73,7 +80,7 @@ Consultado em **2026-11-06**, nas páginas oficiais. Os planos gratuitos mudam: 
 |---|---|---|
 | 1 | O bot nunca dorme | Oracle: sempre ligada, mas a instância ociosa pode ser reclaimed. A F0-06 mede |
 | 2 | O banco não expira e tem backup | Neon não expira. O backup nativo não basta, então o dump externo é obrigatório (F1-24) |
-| 3 | Custo zero sem cartão, ou com cartão apenas para verificação | Neon: sem cartão. Oracle: não confirmado. Cloudflare: não consultado. Google exige conta de faturamento, o que pode ferir o critério |
+| 3 | Custo zero sem cartão, ou com cartão apenas para verificação | Neon: sem cartão. Oracle: atende, com cartão só para verificação. Cloudflare: não confirmado. Google exige conta de faturamento, o que pode ferir o critério |
 | 4 | Deploy automatizável pelo GitHub Actions | Workers: a página do Hono documenta. Bot: a provar na F0-06 |
 | 5 | Migração para outro provedor em um dia | Mantido: Hono portátil para Node, Postgres padrão e bot em container. Ainda não exercitado |
 
@@ -130,7 +137,16 @@ Os termos do GitHub Actions restringem usos não ligados ao desenvolvimento ("de
 
 Revisa o texto anterior, "todo o projeto é empacotado em Docker desde o início". Docker agora vale para o **bot** e para o **banco local**. API e front rodam localmente com Wrangler. A reversibilidade da API vem da portabilidade do Hono para Node.
 
+### Hyperdrive no plano gratuito
+
+As fontes se contradizem: a Cloudflare inclui o Hyperdrive no plano Free, e o guia do Neon exige plano pago. A página de preços é do próprio fornecedor e tem data recente, por isso a escolha se mantém, mas a F0-10 precisa provar na prática. Se o Hyperdrive exigir plano pago, a ligação entre API e banco volta ao usuário.
+
 ### Oracle Always Free
+
+- **Fim do teste:** o Always Free continua ("There is no interruption to the availability of the Always Free Resources you have provisioned"). Mas instâncias A1 acima da franquia são "disabled and then deleted after 30 days", exceto se ficarem em "no more than 2 OCPUs and 12 GB of memory in total".
+- **Região:** a região inicial é permanente ("You can't change this after signing up"), e o Always Free precisa ser criado nela. "out of host capacity" é "temporary lack of Always Free shapes in your home region", então vale escolher a região com cuidado.
+- **Ociosidade, não confirmado:** a definição de utilização de rede, se há aviso antes da recuperação, se a VM é parada ou apagada, e se conta paga fica isenta.
+- **Páginas inacessíveis:** `oracle.com/cloud/free` e `/faq` responderam 403.
 
 A imagem do bot precisa rodar na arquitetura escolhida (x86 no E2.1.Micro, ARM no A1). A F0-06 observa o risco de reclaim por 7 dias, além das 72 h de estabilidade. Se os três limites forem cumulativos, um A1 com pouca memória alocada pode ficar acima de 20% de memória; a redação lida não permite afirmar isso.
 
@@ -157,4 +173,6 @@ A imagem do bot precisa rodar na arquitetura escolhida (x86 no E2.1.Micro, ARM n
 - [ ] F0-07: SPA e API no mesmo Worker e cookie de refresh.
 - [ ] Levantar e escolher o destino do backup.
 - [ ] F1-24: backup externo e restauração testada.
-- [ ] Confirmar a exigência de cartão na Oracle e na Cloudflare.
+- [x] F0-05: exigência de cartão na Oracle, confirmada em 2026-11-06.
+- [ ] Exigência de cartão na Cloudflare: não confirmada; verificar ao criar a conta (U-03).
+- [ ] F0-10: Hyperdrive com Neon no plano gratuito, resolvendo o conflito entre as fontes.
