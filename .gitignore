@@ -23,6 +23,10 @@ test-results/
 .env
 .env.*
 !.env.example
+.dev.vars*
+
+# Wrangler
+.wrangler/
 
 # Logs
 *.log
