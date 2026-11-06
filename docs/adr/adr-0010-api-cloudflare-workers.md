@@ -36,8 +36,8 @@ Se a falha vier do framework, troca-se o framework. Se a rota não couber no lim
 
 **Negativas / custos**
 - **Limite de 10 ms de CPU:** cuidado com operações pesadas por requisição, como cálculo de streak, fatiamento por fuso, união de intervalos e agregações. É uma restrição direta do **ADR 0008**, que deve considerar agregar em SQL, usar rollups ou calcular no cliente com a lógica pura de `packages/shared`. Não foi confirmado nas páginas lidas se a espera por I/O conta nesse limite; a prova mede.
-- **Hash forte de senha:** relatos de terceiros, a confirmar, indicam que não cabe em 10 ms. A conta sem Discord está decidida, e isso pesa na escolha, ainda em aberto, da forma de login dela. O refresh token do ADR 0003 não tem esse problema, pois é aleatório, e a verificação do hash pode ser rápida.
-- **Sinais frequentes:** não podem tocar o banco a cada envio, e cada um também consome requisições do limite diário (ADR 0004).
+- **Hash forte de senha:** relatos de terceiros, a confirmar, indicam que não cabe em 10 ms. O login decidido é por Google e Discord, sem e-mail e senha, o que evita esse custo. O refresh token do ADR 0003 não tem esse problema, pois é aleatório, e a verificação do hash pode ser rápida.
+- **Sinais frequentes:** não tocam o banco a cada envio (decisão no ADR 0004), e os que passam pela API também consomem requisições do limite diário.
 - **Testes:** Testcontainers roda em Node e não prova o comportamento no runtime de Workers. Será preciso também um teste no runtime real ou no ambiente publicado. A conexão local com Postgres via Wrangler ainda não foi confirmada.
 - **Migrations:** rodam no CI ou localmente, com conexão direta ao Neon, e não dentro do Worker.
 - **Código portátil:** o que é específico de Workers (bindings, acesso ao ambiente) precisa ficar isolado na entrada da aplicação.

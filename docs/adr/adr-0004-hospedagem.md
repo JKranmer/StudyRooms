@@ -1,6 +1,6 @@
 # ADR 0004: Hospedagem gratuita (bot, API, banco e front)
 
-- **Status:** Aceito, com ressalvas: o provedor do bot será confirmado pela prova F0-06, e o Neon aguarda a escolha nominal do usuário
+- **Status:** Aceito, com ressalva: o provedor final do bot será confirmado pela prova F0-06
 - **Data:** 2026-11-04 (escolha registrada em 2026-11-06)
 - **Fase:** 1
 
@@ -21,7 +21,7 @@ Restrição definida pelo autor: **apenas planos gratuitos** na versão 1. Mais 
 |---|---|---|
 | Front | Cloudflare | Decidido pelo usuário |
 | API | Cloudflare Workers ([ADR 0010](adr-0010-api-cloudflare-workers.md)) | Decidido pelo usuário |
-| Banco | Outro provedor gratuito. Neon como primeira opção, via Hyperdrive | Provedor separado decidido pelo usuário. Neon é recomendação da equipe, ainda não escolhida nominalmente por ele |
+| Banco | Neon, via Hyperdrive | Escolha confirmada pelo usuário |
 | Bot | VM gratuita. Oracle Always Free como primeira opção; Northflank Sandbox e Google e2-micro como alternativas | VM gratuita: recomendação da equipe, aceita pelo usuário. Oracle: recomendação da equipe, a confirmar pela F0-06 |
 
 **Possível vantagem a provar:** servir a SPA e a API no mesmo Worker, no domínio `workers.dev`, resolvendo o cookie de refresh na mesma origem e sem comprar domínio. Isso **não foi confirmado** nas páginas de planos lidas. A página do Hono documenta o recurso Static Assets no Worker, mas não trata do fallback de rotas da SPA nem do cookie. A F0-07 prova. Se falhar, a topologia do cookie volta a ser uma decisão do usuário.
@@ -79,9 +79,17 @@ Consultado em **2026-11-06**, nas páginas oficiais. Os planos gratuitos mudam: 
 
 ## Consequências e restrições
 
-### Neon e sinais frequentes (restrição para o ADR 0007 e para o timer)
+### Neon e sinais frequentes
 
-Cada escrita acorda o banco, que só suspende após 5 min sem atividade. Um sinal a cada minuto (heartbeat do bot ou do timer) impediria a suspensão e gastaria as 400 h em cerca de 17 dias, deixando o banco suspenso até o próximo ciclo. **Sinais frequentes não podem tocar o banco a cada envio.** A solução fica para o ADR 0007 e para o timer.
+Cada escrita acorda o banco, que só suspende após 5 min sem atividade. Um sinal a cada minuto (heartbeat do bot ou do timer) impediria a suspensão e gastaria as 400 h em cerca de 17 dias, deixando o banco suspenso até o próximo ciclo. **Sinais frequentes não podem tocar o banco a cada envio.**
+
+**Decisão do usuário:** sinal em memória na VM e gravação periódica a cada 30 min, cerca de 120 h por mês. Essa conta vale para uma única série de gravações, sem o resto do uso. O ADR 0007 define a regra de fechamento das órfãs dentro dessa restrição.
+
+Consequências:
+
+- Se o processo do bot morrer, o último sinal em memória se perde, e o fim da sessão órfã pode errar em até 30 min.
+- O timer guarda o tempo até o último sinal recebido, mas não passa pela VM. Como aplicar o intervalo a ele fica para a implementação do timer, com duas atenções: fechar o site sem aviso pode perder até um intervalo, e gravações fora de sincronia com as do bot somam horas acordadas além das 120 h.
+- Qualquer verificador periódico de órfãs também acorda o banco e entra nessa conta.
 
 Estimativa nossa do tempo acordado com gravações periódicas 24 h por dia, a 0,25 CU, sem contar o resto do uso:
 
@@ -92,27 +100,27 @@ Estimativa nossa do tempo acordado com gravações periódicas 24 h por dia, a 0
 | 15 min | 240 |
 | 30 min | 120 |
 
-Opções a avaliar:
+Opções consideradas:
 
 | Opção | Custo no banco | Limitação |
 |---|---|---|
-| A. Sinal do bot em memória ou em arquivo na VM; o banco só recebe eventos reais e a reconciliação | Mínimo | Perdendo a VM, o horário do último sinal se perde |
-| B. Gravação periódica de um único sinal do bot (não um por sessão), só com sessão aberta | Tabela acima | O fim da sessão órfã erra até um intervalo |
+| A. Sinal do bot em memória na VM; o banco só recebe eventos reais e a reconciliação (**escolhida, com B**) | Mínimo | Perdendo o processo, o horário do último sinal se perde |
+| B. Gravação periódica de um único sinal do bot (não um por sessão), só com sessão aberta (**escolhida, a cada 30 min**) | Tabela acima | O fim da sessão órfã erra até um intervalo |
 | C. Guardar o sinal fora do Postgres (por exemplo, KV ou Durable Objects) | Só ao consolidar | Limites gratuitos ainda não consultados |
-| D. Timer: último sinal guardado no navegador e enviado na volta | Só em eventos | Perde o sinal se a pessoa não voltar; depende da decisão em aberto sobre fechar o site |
-
-**Recomendação, não decidida:** A com B a cada 30 min para o bot. Qualquer verificador periódico de órfãs também acorda o banco e entra nessa conta.
+| D. Timer: último sinal guardado no navegador e enviado na volta | Só em eventos | Perde o sinal se a pessoa não voltar |
 
 ### Fase 1 aberta e limites compartilhados
 
 Sem allowlist, todos os usuários dividem as 400 h, 1 GB e os limites diários. Ao esgotar o Neon, o site e a coleta param até o próximo ciclo, e o que ocorrer nesse período pode se perder. O monitoramento (F1-25) precisa acompanhar esse consumo.
 
-### Backup (a tratar na F1-24)
+### Backup (a implementar na F1-24)
 
-O backup nativo do Neon não protege o histórico, então é preciso um dump externo. A VM do bot pode rodar o dump diário para fora. Pontos em aberto:
+O backup nativo do Neon não protege o histórico, então é preciso um dump externo.
 
-- o destino ainda não foi escolhido;
-- a VM precisaria de uma credencial só de leitura, separada, já que o bot grava pela API;
+**Decisão do usuário:** o dump diário roda pela VM. O destino continua em aberto, com levantamento pendente. Pontos a tratar:
+
+- se a F0-06 levar a um provedor sem VM, como o Northflank Sandbox, é preciso rever onde o dump roda;
+- a VM precisa de uma credencial só de leitura, separada, já que o bot grava pela API;
 - o dump acorda o banco e provavelmente consome a saída de 5 GB/mês (não confirmado);
 - a retenção precisa respeitar a exclusão de conta: backups expiram em até 30 dias.
 
@@ -124,7 +132,7 @@ Revisa o texto anterior, "todo o projeto é empacotado em Docker desde o início
 
 ### Oracle Always Free
 
-A imagem do bot precisa rodar na arquitetura escolhida (x86 no E2.1.Micro, ARM no A1). A F0-06 observa o risco de reclaim. Se os três limites forem cumulativos, um A1 com pouca memória alocada pode ficar acima de 20% de memória; a redação lida não permite afirmar isso.
+A imagem do bot precisa rodar na arquitetura escolhida (x86 no E2.1.Micro, ARM no A1). A F0-06 observa o risco de reclaim por 7 dias, além das 72 h de estabilidade. Se os três limites forem cumulativos, um A1 com pouca memória alocada pode ficar acima de 20% de memória; a redação lida não permite afirmar isso.
 
 ### Plano de saída
 
@@ -139,8 +147,8 @@ A imagem do bot precisa rodar na arquitetura escolhida (x86 no E2.1.Micro, ARM n
 
 ## Pendências
 
-- [ ] Usuário confirmar o Neon como provedor do banco.
-- [ ] F0-06: bot no provedor candidato, com resultado medido.
+- [ ] F0-06: bot no provedor candidato, com resultado medido (72 h de estabilidade e 7 dias de observação na Oracle); define o provedor final.
 - [ ] F0-07: SPA e API no mesmo Worker e cookie de refresh.
+- [ ] Levantar e escolher o destino do backup.
 - [ ] F1-24: backup externo e restauração testada.
 - [ ] Confirmar a exigência de cartão na Oracle e na Cloudflare.

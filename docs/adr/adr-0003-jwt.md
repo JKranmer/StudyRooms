@@ -1,6 +1,6 @@
 # ADR 0003: Autenticação com JWT (access token curto + refresh token rotativo)
 
-> **Nota (2026-11-06):** o item 6 será resolvido pelo ADR 0011 (planejado). A conta sem Discord está decidida, e só a forma de login dela segue em aberto: ver "Decisões em aberto" no [README](../../README.md#decisões-em-aberto).
+> **Nota (2026-11-06):** o item 6 será resolvido pelo ADR 0011 (planejado). O login passa a ser por Google além de Discord, sem e-mail e senha; o detalhe fica no ADR de login que a F1-45 produz.
 
 - **Status:** Aceito
 - **Data:** 2026-11-04
