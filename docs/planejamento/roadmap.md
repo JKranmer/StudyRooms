@@ -29,15 +29,39 @@ Depois de F0-01, há duas linhas que podem andar em paralelo: bot (F0-02, F0-03,
 |---|---|---|---|---|---|---|
 | F0-09 | Criar a branch `dev` a partir da `main`. | Nina | nenhuma | `dev` existe e aponta para o mesmo commit da `main` no momento da criação. A publicação no remoto segue D-12. | concluída | sem commit |
 | F0-01 | Criar o workspace pnpm mínimo com `apps/bot` e `.env.example`. | Rafa | F0-09 | Em clone limpo, `pnpm install --frozen-lockfile` e o typecheck de `apps/bot` terminam com código 0; `.env.example` documenta as variáveis, sem valores reais. | concluída | `chore(repo): cria workspace mínimo com apps/bot` |
-| F0-05 | Confirmar o que o levantamento do ADR 0004 deixou em aberto. | Rafa | nenhuma | ADR 0004 responde, com link oficial e data, se Oracle e Cloudflare exigem cartão e se a exigência fere o critério 3; o que seguir sem resposta fica marcado como não confirmado. | a fazer | `docs(adr): confirma pendências do levantamento de planos` |
-| F0-02 | Logar no console entrada, saída e troca de canal de voz. | Rafa | F0-01, U-01, U-02, U-06 | Roteiro manual: entrar, trocar e sair geram 3 linhas com tipo, canal e horário UTC; mutar ou transmitir não gera linha; conta fora da allowlist de teste não aparece no log; o código não usa intent privilegiada nem lê mensagens. A allowlist existe só no spike, por privacidade. | a fazer | `feat(bot): loga eventos de voz no console` |
-| F0-03 | Provar que o bot enxerga quem já está na call ao iniciar e que sobrevive a reconexões. | Rafa | F0-02 | Iniciar com a conta de teste na call gera log do estado atual; após queda de rede simulada, o bot reconecta sozinho e volta a logar eventos; o relatório diz, com teste, se a intent `guilds` é necessária além de `guild_voice_states`. O resultado alimenta o ADR 0007. | a fazer | `feat(bot): loga estado de voz na inicialização` |
-| F0-04 | Empacotar o bot em Docker. | Rafa | F0-02, U-05 | `docker compose up bot` repete o roteiro de F0-02; o token não aparece em `docker history` nem em `docker inspect` da imagem. | a fazer | `build(bot): adiciona Dockerfile e compose do bot` |
-| F0-06 | Colocar o bot na VM candidata e medir a estabilidade. | Rafa | F0-04, F0-05, U-03 | Imagem roda na arquitetura escolhida; bot online por 72 h seguidas, sem intervenção; roteiro de F0-02 funciona no ambiente hospedado; após reiniciar a máquina, o bot volta sozinho; custo apurado no painel é zero; existe runbook de subida. Além das 72 h, 7 dias de observação; na Oracle, CPU, rede e memória comparadas aos limites de reclaim do ADR 0004. | a fazer | `docs(infra): adiciona runbook do deploy de prova` |
-| F0-10 | Provar uma rota real do Hono em Workers dentro do limite de CPU. | Rafa | F0-01, F0-05, U-03 | Em ambiente publicado, uma rota valida a entrada com Zod, verifica um JWT e consulta o Neon com Drizzle via Hyperdrive; 100 chamadas, incluindo a primeira após um novo deploy, terminam sem erro de limite de CPU; o OpenAPI é gerado dos schemas sem custo relevante por requisição; o ADR 0010 registra as medições e se a espera por I/O conta no limite. | a fazer | `feat(api): adiciona prova do Hono em Workers` |
+| F0-05 | Confirmar o que o levantamento do ADR 0004 deixou em aberto. | Rafa | nenhuma | ADR 0004 responde, com link oficial e data, se Oracle e Cloudflare exigem cartão e se a exigência fere o critério 3; o que seguir sem resposta fica marcado como não confirmado. | concluída, com ressalva ([notas](#notas-da-fase-0)) | `docs(adr): registra verificação dos planos gratuitos` |
+| F0-02 | Logar no console entrada, saída e troca de canal de voz. | Rafa | F0-01, U-01, U-02, U-06 | Roteiro manual: entrar, trocar e sair geram 3 linhas com tipo, canal e horário UTC; mutar ou transmitir não gera linha; conta fora da allowlist de teste não aparece no log; o código não usa intent privilegiada nem lê mensagens. A allowlist existe só no spike, por privacidade. | concluída ([notas](#notas-da-fase-0)) | `feat(bot): loga eventos de voz no console` |
+| F0-03 | Provar que o bot enxerga quem já está na call ao iniciar e que sobrevive a reconexões. | Rafa | F0-02 | Iniciar com a conta de teste na call gera log do estado atual; após queda de rede simulada, o bot reconecta sozinho e volta a logar eventos; o relatório diz, com teste, se a intent `guilds` é necessária além de `guild_voice_states`. O resultado alimenta o ADR 0007. Trata também os problemas conhecidos atribuídos a ela nas [notas](#notas-da-fase-0). | a fazer | `feat(bot): loga estado de voz na inicialização` |
+| F0-04 | Empacotar o bot em Docker. | Rafa | F0-02, U-05 | `docker compose up bot` repete o roteiro de F0-02; o token não aparece em `docker history` nem em `docker inspect` da imagem. Trata também os problemas conhecidos atribuídos a ela nas [notas](#notas-da-fase-0). | a fazer | `build(bot): adiciona Dockerfile e compose do bot` |
+| F0-06 | Colocar o bot na VM candidata e medir a estabilidade. | Rafa | F0-04, F0-05, U-03 | Imagem roda na arquitetura escolhida; bot online por 72 h seguidas, sem intervenção; roteiro de F0-02 funciona no ambiente hospedado; após reiniciar a máquina, o bot volta sozinho; custo apurado no painel é zero; existe runbook de subida. Além das 72 h, 7 dias de observação; na Oracle, CPU, rede e memória comparadas aos limites de reclaim do ADR 0004. Antes do cadastro, o usuário lê as [notas](#notas-da-fase-0). | a fazer | `docs(infra): adiciona runbook do deploy de prova` |
+| F0-10 | Provar uma rota real do Hono em Workers dentro do limite de CPU. | Rafa | F0-01, F0-05, U-03 | Em ambiente publicado, uma rota valida a entrada com Zod, verifica um JWT e consulta o Neon com Drizzle via Hyperdrive; 100 chamadas, incluindo a primeira após um novo deploy, terminam sem erro de limite de CPU; o OpenAPI é gerado dos schemas sem custo relevante por requisição; o ADR 0010 registra as medições e se a espera por I/O conta no limite. Se o Hyperdrive exigir plano pago, a decisão volta ao usuário ([notas](#notas-da-fase-0)). | a fazer | `feat(api): adiciona prova do Hono em Workers` |
 | F0-11 | Provar a saída para Node e a suspensão do Neon com o Hyperdrive conectado. | Rafa | F0-10 | O mesmo código de rotas responde igual em Node; com o Hyperdrive conectado e sem requisições, o painel do Neon mostra a suspensão em até 15 min, e a chamada seguinte responde sem erro. Se o Neon não suspender, a falha vai ao usuário antes de F0-08, pois as 400 h deixam de bastar. | a fazer | `test(api): prova execução em Node e suspensão do Neon` |
 | F0-07 | Provar HTTPS, fallback da SPA e cookie de refresh com SPA e API no mesmo Worker. | Ambos (Lia: página; Rafa: endpoint) | F0-10 | Playwright em Chromium, Firefox e WebKit, em `workers.dev`: a página publicada chama a API por HTTPS e recebe cookie `httpOnly` e `Secure` com `SameSite`; após recarregar, o cookie é reenviado à rota de teste; recarregar uma rota interna da SPA entrega a aplicação; rotas da API não caem no fallback. Se falhar, a topologia volta ao usuário (D-02). | a fazer | `chore(infra): adiciona prova de HTTPS e cookie` |
 | F0-08 | Confirmar o provedor do bot e encerrar a ressalva do ADR 0004. | Rafa | F0-03, F0-06, F0-07, F0-10, F0-11, D-20 | ADR 0004 encerra a ressalva, com o provedor do bot confirmado pelo usuário, os resultados medidos e as pendências da Fase 0 fechadas; ADR 0010 diz se o Hono foi aprovado; README atualizado com o resultado. | a fazer | `docs(adr): confirma provedor do bot no ADR 0004` |
+
+### Notas da Fase 0
+
+**F0-02, concluída.** A call real com a conta da lista foi relatada pelo usuário como funcionando. A conta fora da lista foi coberta só no Discord simulado do Theo; o teste real está em [Testes pendentes do usuário](#testes-pendentes-do-usuário).
+
+**F0-05, concluída com ressalva.** A Oracle pede cartão só para verificação. Na Cloudflare, a exigência de cartão não foi confirmada: o usuário anota ao criar a conta (U-03).
+
+**Intent `Guilds`.** A F0-02 usa `Guilds` e `GuildVoiceStates`. O fechamento da decisão sobre `Guilds` fica para a F0-03.
+
+**Problemas conhecidos, levantados pelo Theo para o Rafa:**
+
+| Severidade | Problema | Tratar em |
+|---|---|---|
+| P1 | O primeiro Ctrl+C não encerra o bot com login pendente | F0-04 |
+| P2 | `JSON.stringify` não escapa U+2028, U+0085, U+009B e U+202E no log | F0-03 |
+| P3 | Allowlist malformada sobe sem aviso | F0-04 |
+| P3 | `.env` com BOM perde a primeira variável | F0-04 |
+| Sem severidade atribuída | `entrou` falso para quem muda o estado de mudo sem estado em cache | F0-03 |
+| Sem severidade atribuída | `index.ts` sem teste automatizado | F0-03 |
+
+**F0-06, para o usuário, antes do cadastro:**
+
+- A região da Oracle é permanente: decidir antes de se cadastrar.
+- Se o Hyperdrive exigir plano pago, a F0-10 devolve a decisão ao usuário, avaliando antes o driver serverless do Neon.
 
 ## Fase 1: tracker
 
@@ -172,14 +196,22 @@ Situação em 2026-11-06.
 
 | ID | Pré-requisito | Necessário para | Situação |
 |---|---|---|---|
-| U-01 | Aplicação no Discord com bot e token, sem intents privilegiadas, com o token só no `.env` local | F0-02 | Não verificado |
-| U-02 | Servidor de teste com canal de voz, canal AFK e uma segunda conta que não se vincula; depois, um segundo servidor | F0-02, F1-20, F1-41 | Não verificado |
-| U-03 | Contas na Cloudflare, no Neon e na Oracle (exigência de cartão na Oracle e na Cloudflare: ver F0-05) | F0-06, F0-07, F0-10 | Não verificado |
+| U-01 | Aplicação no Discord com bot e token, sem intents privilegiadas, com o token só no `.env` local | F0-02 | Em uso na F0-02, por relato do usuário |
+| U-02 | Servidor de teste com canal de voz, canal AFK e uma segunda conta que não se vincula; depois, um segundo servidor | F0-02, F1-20, F1-41 | Parcial: canal de voz em uso na F0-02; o usuário ainda não tem segunda conta (ver [Testes pendentes do usuário](#testes-pendentes-do-usuário)); canal AFK e segundo servidor não verificados |
+| U-03 | Contas na Cloudflare, no Neon e na Oracle. Cartão: a Oracle pede só para verificação (F0-05); na Cloudflare, não confirmado, a anotar pelo usuário ao criar a conta | F0-06, F0-07, F0-10 | Não verificado |
 | U-04 | pnpm funcionando | Nenhuma atividade pendente (F0-01 não depende mais dele) | Resolvido |
 | U-05 | Docker ligado manualmente: `wsl -d docker-engine`, com o terminal aberto enquanto usar (ver README). Sem início automático, por escolha do usuário; Docker Desktop não é mais usado | F0-04, F1-04, F1-22, testes com Testcontainers | Definido; a ligar a cada uso |
 | U-06 | Disponibilidade para os roteiros manuais de voz | F0-02, F0-03, F0-06, F1-20, F1-26, F1-41 | Ver S-03 |
 | U-07 | `client_id`, `client_secret` e redirect URIs do OAuth2 do Discord e do Google | F1-13, F1-44 | Não verificado |
 | U-08 | Secrets no GitHub para deploy | F1-23 | A fazer |
+
+## Testes pendentes do usuário
+
+Lista de testes para o usuário fazer depois, a pedido dele.
+
+| Teste | Atividade | Responsável | Motivo | Status |
+|---|---|---|---|---|
+| Com uma segunda conta, fora da allowlist, entrar e sair de um canal de voz e confirmar que nada aparece no terminal. | F0-02 | Usuário | No momento ele só tem um usuário | a fazer |
 
 ## Suposições aceitas
 
