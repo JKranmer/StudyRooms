@@ -4,7 +4,7 @@ Aprovado com pendências em 2026-11-06. As pendências estão em [Em aberto](#em
 
 Referências usadas neste plano: **D-xx** são decisões do usuário, **U-xx** são pré-requisitos do usuário e **S-xx** são suposições aceitas. Os IDs das atividades são estáveis e não seguem a ordem de execução: novas atividades recebem o próximo número, e as tabelas estão na ordem recomendada.
 
-Branches: `dev` integra e `main` guarda o que está estável. O trabalho é feito em branches curtas a partir de `dev`, que entram em `dev` por PR no GitHub: a Nina abre o PR, e o usuário revisa e faz o merge (D-12). Levar `dev` para `main` depende de o usuário considerar estável.
+Branches: `dev` integra e `main` guarda o que está estável. Os commits são feitos direto em `dev`, sem PR nem branch curta (D-12). Levar `dev` para `main` depende de o usuário considerar estável.
 
 ## Visão geral e ordem de execução
 
@@ -27,7 +27,7 @@ Depois de F0-01, há duas linhas que podem andar em paralelo: bot (F0-02, F0-03,
 
 | ID | Objetivo | Resp. | Depende de | Critério de aceite | Status | Commit previsto |
 |---|---|---|---|---|---|---|
-| F0-09 | Criar a branch `dev` a partir da `main`. | Nina | nenhuma | `dev` existe e aponta para o mesmo commit da `main` no momento da criação; o trabalho seguinte parte de uma branch curta de `dev`. A publicação no remoto segue D-12. | concluída | sem commit |
+| F0-09 | Criar a branch `dev` a partir da `main`. | Nina | nenhuma | `dev` existe e aponta para o mesmo commit da `main` no momento da criação. A publicação no remoto segue D-12. | concluída | sem commit |
 | F0-01 | Criar o workspace pnpm mínimo com `apps/bot` e `.env.example`. | Rafa | F0-09 | Em clone limpo, `pnpm install --frozen-lockfile` e o typecheck de `apps/bot` terminam com código 0; `.env.example` documenta as variáveis, sem valores reais. | concluída | `chore(repo): cria workspace mínimo com apps/bot` |
 | F0-05 | Confirmar o que o levantamento do ADR 0004 deixou em aberto. | Rafa | nenhuma | ADR 0004 responde, com link oficial e data, se Oracle e Cloudflare exigem cartão e se a exigência fere o critério 3; o que seguir sem resposta fica marcado como não confirmado. | a fazer | `docs(adr): confirma pendências do levantamento de planos` |
 | F0-02 | Logar no console entrada, saída e troca de canal de voz. | Rafa | F0-01, U-01, U-02, U-06 | Roteiro manual: entrar, trocar e sair geram 3 linhas com tipo, canal e horário UTC; mutar ou transmitir não gera linha; conta fora da allowlist de teste não aparece no log; o código não usa intent privilegiada nem lê mensagens. A allowlist existe só no spike, por privacidade. | a fazer | `feat(bot): loga eventos de voz no console` |
@@ -47,7 +47,7 @@ Depois de F0-01, há duas linhas que podem andar em paralelo: bot (F0-02, F0-03,
 |---|---|---|---|---|---|---|
 | F1-01 | Completar o monorepo com Turborepo e `packages/config`. | Rafa | F0-08 | Em clone limpo, lint, typecheck e test via Turborepo passam; a segunda execução usa cache; a estrutura segue o ADR 0001, com a API do ADR 0010; o que passa no typecheck e quebra ao rodar (import `./dep.js`, decorators, `accessor`, `require` e `__dirname`) é tratado por lint ou por smoke test com `start`; a compatibilidade de `typescript-eslint` com TypeScript 7 fica verificada. | a fazer | `chore(repo): configura Turborepo e packages/config` |
 | F1-02 | Criar `packages/shared` com Vitest. | Rafa | F1-01 | Um teste de exemplo passa pelo Turborepo; o pacote é importável por `apps/bot`; não há dependência de I/O. | a fazer | `chore(shared): cria pacote com Vitest` |
-| F1-03 | Rodar lint, typecheck e testes no GitHub Actions. | Rafa | F1-02 | Um PR de branch curta para `dev` (D-12) com erro de lint proposital fica vermelho e, sem o erro, verde, com o resultado visível no PR antes do merge pelo usuário; mudança só em `apps/web` não executa tarefas de `apps/bot`. | a fazer | `ci(github): adiciona lint, typecheck e testes` |
+| F1-03 | Rodar lint, typecheck e testes no GitHub Actions. | Rafa | F1-02 | Um push em `dev` com erro de lint proposital fica vermelho e, sem o erro, verde, com o resultado visível no GitHub; mudança só em `apps/web` não executa tarefas de `apps/bot`. | a fazer | `ci(github): adiciona lint, typecheck e testes` |
 | F1-04 | Subir Postgres no compose e criar `packages/db` com Drizzle. | Rafa | F1-01, U-05 | `docker compose up db` fica saudável; migrate em banco vazio funciona e a segunda execução não altera nada; um teste com Testcontainers conecta ao banco no Docker atual. Se o Testcontainers não funcionar com esse Docker, Rafa relata antes de seguir. | a fazer | `feat(db): adiciona Postgres e Drizzle` |
 
 ### Bloco B: decisões e modelo
@@ -207,7 +207,7 @@ Situação em 2026-11-06.
 | D-09 | Quem pode entrar na Fase 1? | Qualquer pessoa, sem allowlist, com consentimento obrigatório para a coleta pelo bot | |
 | D-10 | O que acontece ao revogar o consentimento e excluir a conta? | Revogar para a coleta e mantém o histórico; excluir apaga tudo de forma definitiva, e os backups expiram em até 30 dias | |
 | D-11 | Os períodos são de calendário ou móveis, e quando começa a semana? | Calendário, com semana de domingo a sábado | |
-| D-12 | Quando autorizar push, PR, GitHub Actions e GitHub Projects? | Push e PR ao aprovar este plano; Projects logo depois, com as atividades daqui como itens. Branches curtas entram em `dev` por PR no GitHub: a Nina abre o PR, e o usuário revisa e faz o merge | Forma do merge de `dev` para `main`: em aberto, a perguntar depois |
+| D-12 | Quando autorizar push, PR, GitHub Actions e GitHub Projects? | Push ao aprovar este plano; Projects logo depois, com as atividades daqui como itens. Push direto em `dev`, sem PR, porque o login do `gh` não funcionou; pode ser revista | Forma do merge de `dev` para `main`: em aberto, a perguntar depois |
 | D-13 | De que forma se entra sem Discord? | Google e Discord; sem e-mail e senha | F1-45 |
 | D-14 | O que acontece com o timer ao fechar o site? | Guardar até o último sinal recebido | F1-08 |
 | D-15 | Tempo manual retroativo conta na streak? | Conta, marcado como manual | |

@@ -126,7 +126,7 @@ O motor é o Docker Engine dentro da distro WSL `docker-engine`. **O início é 
 
 ## Práticas do projeto
 
-- Branches permanentes `dev` e `main`: o que está estável vai para `main`. PRs revisados por mim mesmo
+- Branches permanentes `dev` e `main`: o que está estável vai para `main`. Commits direto em `dev`, sem PR
 - Conventional Commits
 - ADRs em `docs/adr/` para cada decisão relevante
 - TDD na lógica de streak e fatiamento de sessões (virada de meia-noite, fusos, horário de verão, sessões órfãs)
