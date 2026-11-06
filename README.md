@@ -1,8 +1,8 @@
 # StudyRooms
 
-> Nome provisório. Controle de hábitos de estudo com salas de estudo integradas ao Discord: o tempo em canal de voz vira sessão de estudo, e um dashboard mostra a evolução por semana, mês, trimestre, semestre e ano, além dos horários em que você mais e menos estuda.
+> Nome provisório. Controle de hábitos de estudo com salas de estudo integradas ao Discord: registre o tempo manualmente, por um timer no site ou automaticamente em canal de voz, e acompanhe a evolução por semana, mês, trimestre, semestre e ano, além dos horários em que você mais e menos estuda.
 
-**Status:** Fase 1 em planejamento (nenhum código ainda).
+**Status:** Fase 0 em planejamento (nenhum código ainda). Hospedagem e principais regras de produto decididas em 2026-11-06.
 
 ## Problema e motivação
 
@@ -13,74 +13,109 @@ O diferencial é a integração com o Discord: quem estuda em um canal de voz te
 ## Escopo
 
 ### Fase 1: o tracker
-- Login com Discord (OAuth2) e vínculo do `discord_id`
-- Bot que registra entrada, saída e troca de canal de voz como sessões de estudo
-- Timer manual no site para estudos fora da call (mesma tabela de sessões)
-- Cálculo de **streak** correto no fuso do usuário, incluindo sessões que cruzam a meia-noite
-- Dashboard por período (semana, mês, trimestre, semestre, ano) e **mapa de calor por dia da semana × hora**
-- Consentimento explícito: só registra quem se vinculou ao site
+
+Aberta a qualquer pessoa, sem allowlist.
+
+- **Três formas de registrar tempo:**
+  - **Manual**, inclusive retroativa;
+  - **Timer no site**, enquanto a aplicação está aberta, sem precisar vincular o Discord (o que acontece com o tempo ao fechar o site está em [Decisões em aberto](#decisões-em-aberto));
+  - **Discord**, pelo bot, que registra quem está na call e por quanto tempo.
+- Login com Discord (OAuth2) e vínculo do `discord_id`. Também haverá conta sem Discord; a forma de login dela está em aberto (ver [Decisões em aberto](#decisões-em-aberto))
+- Bot em **vários servidores**: a pessoa escolhe em qual colocá-lo, e o `guild_id` é guardado
+- Só o canal AFK fica de fora do cálculo
+- **Sem limite de duração de sessão:** pode durar 24 h, se não for para o AFK
+- Timer e call simultâneos contam uma vez: união dos intervalos, com os dois registros brutos preservados
+- **Streak** no fuso do usuário: o dia conta com 15 min, incluindo sessões que cruzam a meia-noite, e o dia de hoje só quebra a streak ao terminar
+- Dashboard por período de calendário (semana de domingo a sábado, mês, trimestre, semestre, ano) e **mapa de calor por dia da semana × hora**
+- Consentimento explícito e obrigatório para a coleta pelo bot
 
 ### Fase 2: tempo real (depois da Fase 1 em produção)
 - Presença nas salas, timer sincronizado entre dispositivos, ranking ao vivo
-- Redis pub/sub, SSE, teste de carga (k6) documentado
+- Redis pub/sub, SSE e teste de carga (k6) a reavaliar sob Workers, no ADR 0009
 
 ## Stack
 
 | Camada | Tecnologia | Decisão |
 |---|---|---|
 | Repositório | Monorepo pnpm workspaces + Turborepo | [ADR 0001](docs/adr/adr-0001-monorepo.md) |
-| Front-end | React + Vite + TypeScript (SPA), TanStack Router/Query, Tailwind, shadcn/ui | [ADR 0002](docs/adr/adr-0002-spa.md) |
+| Front-end | React + Vite + TypeScript (SPA), TanStack Router/Query, Tailwind, shadcn/ui, na Cloudflare | [ADR 0002](docs/adr/adr-0002-spa.md), [ADR 0004](docs/adr/adr-0004-hospedagem.md) |
 | Autenticação | Discord OAuth2 + JWT (access curto + refresh rotativo) | [ADR 0003](docs/adr/adr-0003-jwt.md) |
-| API | Node + Fastify + Zod (OpenAPI gerado dos schemas) | planejado |
-| Banco | PostgreSQL + Drizzle ORM | planejado |
-| Bot | discord.js (intent `guild_voice_states`, não privilegiada) | planejado |
+| API | Hono (sujeito à prova) + Zod (OpenAPI gerado dos schemas) em Cloudflare Workers | [ADR 0010](docs/adr/adr-0010-api-cloudflare-workers.md) |
+| Banco | PostgreSQL + Drizzle ORM; Neon via Hyperdrive como primeira opção | [ADR 0004](docs/adr/adr-0004-hospedagem.md) |
+| Bot | discord.js (intent `guild_voice_states`; a F0-03 confirma se `guilds` também é necessária), em container; VM Oracle Always Free como primeira opção | [ADR 0004](docs/adr/adr-0004-hospedagem.md), a confirmar pela F0-06 |
 | Testes | Vitest, Testing Library, Playwright, Testcontainers | planejado |
-| Infra | Docker, GitHub Actions, hospedagem 100% gratuita | [ADR 0004](docs/adr/adr-0004-hospedagem.md) (proposto) |
+| Infra | Wrangler, Docker (bot e banco local), GitHub Actions, hospedagem gratuita | [ADR 0004](docs/adr/adr-0004-hospedagem.md) |
 
 TypeScript de ponta a ponta: os schemas Zod em `packages/shared` são a fonte única de verdade dos contratos entre front, API e bot.
+
+Planos gratuitos verificados em **2026-11-06**. Eles mudam: se algum mudar, reconfirme e siga o plano de saída do [ADR 0004](docs/adr/adr-0004-hospedagem.md).
 
 ## Arquitetura (visão de containers)
 
 ```mermaid
 flowchart LR
-    U[Usuário] --> W[Web SPA<br/>React + Vite]
-    W -->|HTTPS + Bearer JWT| A[API<br/>Fastify]
-    D[Discord Gateway] -->|VOICE_STATE_UPDATE| B[Bot<br/>discord.js]
-    B -->|sessões de voz| A
-    A --> P[(PostgreSQL)]
-    W -. OAuth2 .-> D
+    U[Usuário] --> W[Web SPA<br/>Cloudflare]
+    W -->|HTTPS + Bearer JWT| A[API Hono<br/>Cloudflare Workers]
+    G[Discord Gateway] -->|VOICE_STATE_UPDATE| B[Bot discord.js<br/>VM]
+    B -->|HTTPS + credencial de serviço| A
+    A --> H[Hyperdrive]
+    H --> P[(PostgreSQL<br/>Neon)]
+    A -. OAuth2 .-> O[Discord OAuth2]
 ```
+
+SPA e API no mesmo Worker é uma possibilidade a provar na F0-07.
 
 Estrutura do repositório:
 
 ```
 apps/
   web/      # SPA
-  api/      # API HTTP
-  bot/      # bot do Discord
+  api/      # API HTTP (Hono em Cloudflare Workers)
+  bot/      # bot do Discord (container)
 packages/
   shared/   # schemas Zod, tipos, lógica pura (streak, fatiamento de sessões)
   db/       # schema e migrations
   config/   # tsconfig, eslint, prettier
 docs/
-  adr/      # decisões de arquitetura
+  adr/          # decisões de arquitetura
+  planejamento/ # roadmap
 ```
 
 ## Decisões de modelagem (princípios)
 
 - **Tempo sempre em UTC no banco.** O fuso IANA do usuário fica no perfil e é aplicado apenas na leitura (streak, agregações, mapa de calor).
-- **Dado bruto preservado.** Guardamos as sessões como o bot as observou e aplicamos regras (canal AFK, mutado por muito tempo, transmissão) na hora do cálculo, para poder mudar o critério sem perder histórico.
-- **Sessões órfãs.** Se o bot cair com alguém na call, o evento de saída se perde. A inicialização reconcilia o estado atual da call com as sessões abertas e um heartbeat fecha as órfãs.
+- **Dado bruto preservado.** Guardamos os registros como foram observados e aplicamos as regras (canal AFK, união de intervalos, mínimo de 15 min) na hora do cálculo, para poder mudar o critério sem perder histórico.
+- **Só o necessário.** O bot grava quem está na call e por quanto tempo. Mudo e transmissão não são gravados; por isso, um critério baseado neles não poderia ser aplicado ao histórico depois.
+- **Sessões órfãs.** Se o bot cair com alguém na call, o evento de saída se perde. A inicialização reconcilia o estado atual da call com as sessões abertas, e as órfãs são fechadas conforme o ADR 0007. Sinais frequentes não podem tocar o banco a cada envio ([ADR 0004](docs/adr/adr-0004-hospedagem.md)).
 - **Operações idempotentes.** Parar uma sessão duas vezes não cria dois registros.
-- **Sem histórico retroativo.** O Discord não informa o tempo passado em call; os dados começam quando o bot entra no servidor.
+- **Sem histórico retroativo de voz.** O Discord não informa o tempo passado em call; os dados de voz começam quando o bot entra no servidor. Tempo anterior só entra pelo registro manual.
 
 ## Como rodar
 
-Em construção. Meta: `docker compose up` sobe banco, API, bot e web localmente, com um `.env.example` documentado.
+Em construção. Meta, com um `.env.example` documentado:
+
+1. Iniciar o Docker (abaixo).
+2. `docker compose up` sobe o banco local e o bot.
+3. Wrangler sobe a API e o front localmente.
+
+### Iniciar o Docker
+
+O motor é o Docker Engine dentro da distro WSL `docker-engine`. **O início é manual, por escolha do usuário:** faça isto a cada vez que ligar o PC, antes de usar o Docker.
+
+1. **Ligar:** abra um terminal, rode o comando abaixo e **deixe esse terminal aberto** enquanto usar o Docker. Sem ele, a distro desliga em menos de 30 s, mesmo depois de um comando `docker`, e os containers param junto.
+
+   ```
+   wsl -d docker-engine
+   ```
+
+2. **Usar:** em outro terminal, rode `docker` e `docker compose` normalmente. O motor roda na distro `docker-engine`.
+3. **Desligar:** feche esse terminal (ou digite `exit`), ou rode `wsl --terminate docker-engine`.
+
+**Limitação:** caminhos do Windows em argumentos (como os de `-f` e `-v`) não são convertidos. Prefira caminhos relativos, a partir da pasta do projeto.
 
 ## Práticas do projeto
 
-- Trunk-based development com branches curtas e PRs (revisados por mim mesmo)
+- Branches permanentes `dev` e `main`: o que está estável vai para `main`. PRs revisados por mim mesmo
 - Conventional Commits
 - ADRs em `docs/adr/` para cada decisão relevante
 - TDD na lógica de streak e fatiamento de sessões (virada de meia-noite, fusos, horário de verão, sessões órfãs)
@@ -94,12 +129,20 @@ Em construção. Meta: `docker compose up` sobe banco, API, bot e web localmente
 | [0001](docs/adr/adr-0001-monorepo.md) | Monorepo TypeScript | Aceito |
 | [0002](docs/adr/adr-0002-spa.md) | SPA com React + Vite | Aceito |
 | [0003](docs/adr/adr-0003-jwt.md) | Autenticação com JWT | Aceito |
-| [0004](docs/adr/adr-0004-hospedagem.md) | Hospedagem gratuita | Proposto |
+| [0004](docs/adr/adr-0004-hospedagem.md) | Hospedagem gratuita | Aceito, com ressalvas: provedor do bot a confirmar pela F0-06; provedor do banco (Neon é recomendação) a confirmar pelo usuário |
 | 0005 | Modelo de sessões: dado bruto, regras na leitura | Planejado |
 | 0006 | Estratégia de fuso horário | Planejado |
 | 0007 | Reconciliação de sessões órfãs do bot | Planejado |
 | 0008 | Agregação direta vs rollups / materialized views | Planejado |
 | 0009 | SSE vs WebSocket (Fase 2) | Planejado |
+| [0010](docs/adr/adr-0010-api-cloudflare-workers.md) | API em Cloudflare Workers | Aceito quanto a Workers; Hono sujeito à prova |
+| 0011 | Escrita do bot pela API (resolve o item 6 do ADR 0003) | Planejado |
+
+## Decisões em aberto
+
+- **Forma de login da conta sem Discord.** A conta sem Discord está decidida, mas o ADR 0003 só prevê login por Discord; falta definir como essa conta entra. E-mail e senha é problemático no Workers gratuito, pois hash forte de senha não caberia em 10 ms de CPU (relatos de terceiros, a confirmar). Direção a avaliar: OAuth (por exemplo, Google) mais Discord.
+- **Timer ao fechar o site.** Sugestão: guardar até o último sinal recebido.
+- **Tempo manual retroativo na streak.** Sugestão: conta, marcado como manual.
 
 ## Roadmap
 
@@ -107,10 +150,14 @@ Em construção. Meta: `docker compose up` sobe banco, API, bot e web localmente
 - [ ] Fase 1: tracker completo, em produção, usado diariamente
 - [ ] Fase 2: salas de estudo em tempo real
 
+Detalhes em [docs/planejamento/roadmap.md](docs/planejamento/roadmap.md).
+
 ## O que eu faria diferente
 
 _A preencher ao longo do projeto._
 
 ## Privacidade
 
-O bot só registra tempo de quem vinculou a conta ao site e aceitou o acompanhamento. Nenhuma mensagem é lida, e a intent de conteúdo de mensagens não é usada.
+O bot só registra tempo de quem vinculou a conta ao site e aceitou o acompanhamento, e grava apenas presença e duração em call. Nenhuma mensagem é lida, e a intent de conteúdo de mensagens não é usada.
+
+Revogar o consentimento para a coleta e mantém o histórico. Excluir a conta apaga tudo, com backups expirando em até 30 dias.
