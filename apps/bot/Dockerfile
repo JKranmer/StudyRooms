@@ -11,15 +11,18 @@ RUN corepack enable
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/bot/package.json apps/bot/
+COPY packages/db/package.json packages/db/
 
 FROM base AS deps
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --frozen-lockfile --prod --filter @studyrooms/bot --store-dir /pnpm/store
+    pnpm install --frozen-lockfile --prod --filter "@studyrooms/bot..." --store-dir /pnpm/store
 
 # Estágio só para validar o bot no Linux (sinais reais): `docker build --target test .` roda typecheck e testes.
 FROM base AS test
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --frozen-lockfile --filter @studyrooms/bot --store-dir /pnpm/store
+    pnpm install --frozen-lockfile --filter "@studyrooms/bot..." --store-dir /pnpm/store
+COPY packages/db/tsconfig.json packages/db/
+COPY packages/db/src packages/db/src
 COPY apps/bot/tsconfig.json apps/bot/
 COPY apps/bot/src apps/bot/src
 WORKDIR /app/apps/bot
@@ -30,8 +33,15 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/bot/node_modules ./apps/bot/node_modules
+COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
+COPY --chmod=a=rX packages/db/package.json packages/db/
+COPY --chmod=a=rX packages/db/src packages/db/src
 COPY --chmod=a=rX apps/bot/package.json apps/bot/
-COPY --chmod=a=rX --exclude=*.test.ts --exclude=*.test-preload.ts apps/bot/src apps/bot/src
+COPY --chmod=a=rX --exclude=*.test.ts --exclude=*.test-preload.ts --exclude=*.test-helper.ts apps/bot/src apps/bot/src
+# Fila em disco dos eventos ainda não gravados no banco. O container roda com `read_only`, então
+# o compose monta um volume aqui; criada com o dono `node`, o volume novo herda a permissão.
+ENV BOT_QUEUE_DIR=/var/lib/studyrooms-bot
+RUN mkdir -p /var/lib/studyrooms-bot && chown node:node /var/lib/studyrooms-bot
 WORKDIR /app/apps/bot
 # Os arquivos ficam com o dono root e só leitura (o checkout no Windows chega como 777);
 # o processo roda como `node`, sem poder alterá-los.

@@ -6,13 +6,19 @@
   "scripts": {
     "start": "node --env-file-if-exists=../../.env src/index.ts",
     "test": "node --test \"src/**/*.test.ts\"",
+    "test:integration": "node --test --test-concurrency=1 \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@testcontainers/postgresql": "12.2.1",
     "@types/node": "24.19.2",
+    "@types/pg": "8.23.1",
+    "pg": "8.23.1",
+    "testcontainers": "12.2.1",
     "typescript": "7.0.2"
   },
   "dependencies": {
+    "@studyrooms/db": "workspace:*",
     "discord.js": "14.28.1"
   }
 }
