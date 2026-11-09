@@ -1,0 +1,141 @@
+{
+  "id": "43862dd4-c6f6-45b7-868b-6182cfc8e0fe",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.raw_voice_events": {
+      "name": "raw_voice_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "raw_voice_events_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "discord_user_id": {
+          "name": "discord_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "guild_id": {
+          "name": "guild_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "from_channel_id": {
+          "name": "from_channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "to_channel_id": {
+          "name": "to_channel_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recorded_at": {
+          "name": "recorded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "raw_voice_events_user_occurred_idx": {
+          "name": "raw_voice_events_user_occurred_idx",
+          "columns": [
+            {
+              "expression": "discord_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "occurred_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "raw_voice_events_idempotency_key_unique": {
+          "name": "raw_voice_events_idempotency_key_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "idempotency_key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "raw_voice_events_event_type_check": {
+          "name": "raw_voice_events_event_type_check",
+          "value": "event_type in ('voice_join', 'voice_leave', 'voice_move', 'voice_present', 'bot_start', 'bot_disconnect', 'bot_resume', 'bot_heartbeat', 'bot_stop')"
+        },
+        "raw_voice_events_snowflakes_check": {
+          "name": "raw_voice_events_snowflakes_check",
+          "value": "\"raw_voice_events\".\"discord_user_id\" ~ '^[0-9]{17,20}$'\n        and \"raw_voice_events\".\"guild_id\" ~ '^[0-9]{17,20}$'\n        and \"raw_voice_events\".\"from_channel_id\" ~ '^[0-9]{17,20}$'\n        and \"raw_voice_events\".\"to_channel_id\" ~ '^[0-9]{17,20}$'"
+        },
+        "raw_voice_events_shape_check": {
+          "name": "raw_voice_events_shape_check",
+          "value": "case\n        when \"raw_voice_events\".\"event_type\" in ('voice_join', 'voice_present') then\n          \"raw_voice_events\".\"discord_user_id\" is not null and \"raw_voice_events\".\"guild_id\" is not null\n          and \"raw_voice_events\".\"from_channel_id\" is null and \"raw_voice_events\".\"to_channel_id\" is not null\n        when \"raw_voice_events\".\"event_type\" = 'voice_leave' then\n          \"raw_voice_events\".\"discord_user_id\" is not null and \"raw_voice_events\".\"guild_id\" is not null\n          and \"raw_voice_events\".\"from_channel_id\" is not null and \"raw_voice_events\".\"to_channel_id\" is null\n        when \"raw_voice_events\".\"event_type\" = 'voice_move' then\n          \"raw_voice_events\".\"discord_user_id\" is not null and \"raw_voice_events\".\"guild_id\" is not null\n          and \"raw_voice_events\".\"from_channel_id\" is not null and \"raw_voice_events\".\"to_channel_id\" is not null\n          and \"raw_voice_events\".\"from_channel_id\" <> \"raw_voice_events\".\"to_channel_id\"\n        else\n          \"raw_voice_events\".\"discord_user_id\" is null and \"raw_voice_events\".\"from_channel_id\" is null and \"raw_voice_events\".\"to_channel_id\" is null\n      end"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

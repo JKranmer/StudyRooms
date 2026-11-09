@@ -27,3 +27,38 @@ services:
       options:
         max-size: 10m
         max-file: "3"
+
+  # Postgres local, a mesma versão maior usada nos testes (Testcontainers). Credenciais vêm do
+  # `.env` da raiz (POSTGRES_*). Sem POSTGRES_PASSWORD, o container não sobe e o log diz por quê.
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-studyrooms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_DB: ${POSTGRES_DB:-studyrooms}
+      TZ: UTC
+      PGTZ: UTC
+    # Só na interface local da máquina, nunca na rede.
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    # Pela TCP: durante a inicialização, o servidor temporário só escuta no socket local,
+    # então o container só fica saudável quando o servidor definitivo aceita conexões.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  # Dados do banco local. `docker compose down` mantém; só `down -v` apaga.
+  db-data:

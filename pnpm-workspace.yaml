@@ -1,4 +1,14 @@
 packages:
   - apps/*
+  - packages/*
+
+# Nenhuma dependência roda script de instalação. O esbuild (usado pelo drizzle-kit e pelo Vitest)
+# funciona pelo binário do pacote opcional da plataforma; cpu-features, protobufjs e ssh2 vêm do
+# Testcontainers e são opcionais.
+allowBuilds:
+  cpu-features: false
+  esbuild: false
+  protobufjs: false
+  ssh2: false
 
 engineStrict: true

@@ -122,6 +122,20 @@ docker compose down                 # remove o container e a rede
 - **Outro arquivo de ambiente.** `BOT_ENV_FILE` aponta o `env_file` para outro arquivo, por exemplo um com valores falsos para teste: `docker compose --env-file .env.teste up bot`, com `BOT_ENV_FILE=.env.teste` dentro dele.
 - **Testes no Linux.** `docker build -f apps/bot/Dockerfile --target test .` roda typecheck e testes dentro da imagem, onde `Ctrl+C` e `SIGTERM` são sinais reais.
 
+### Banco local e migrations
+
+`packages/db` tem o esquema (Drizzle) e as migrations em `packages/db/drizzle/`. Com o Docker ligado e `POSTGRES_PASSWORD` e `DATABASE_URL` preenchidos no `.env`:
+
+```
+docker compose up -d --wait db        # Postgres 17 em 127.0.0.1, com dados no volume db-data
+pnpm --filter @studyrooms/db migrate  # aplica as migrations pendentes; rodar de novo não muda nada
+pnpm --filter @studyrooms/db test     # testes de integração: cada arquivo sobe seu Postgres (Testcontainers)
+```
+
+- **Testes precisam do Docker ligado.** O Testcontainers usa o `DOCKER_HOST` do Windows (`tcp://localhost:2375`). Com a distro `docker-engine` desligada, os testes falham com "Could not find a working container runtime strategy".
+- **Mudança de esquema.** Altere `packages/db/src/schema.ts` e rode `pnpm --filter @studyrooms/db generate`; a migration nova entra em `packages/db/drizzle/`. Migrations já aplicadas nunca são editadas nem apagadas, e nenhuma pode apagar eventos gravados.
+- **Dados.** `docker compose down` mantém o banco; `docker compose down -v` apaga o volume.
+
 Meta, **ainda não disponível** (o Wrangler não existe no repositório):
 
 1. Iniciar o Docker (abaixo).
