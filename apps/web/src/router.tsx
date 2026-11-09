@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-router';
 
 import { sanitizeRedirect, type AuthStore } from '@/auth/auth-store';
+import { parsePeriodKind, type PeriodKind } from '@/dashboard/types';
 import { RootLayout } from '@/pages/root-layout';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { RouteErrorPage } from '@/pages/route-error-page';
@@ -54,6 +55,9 @@ const authenticatedRoute = createRoute({
 const dashboardRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: '/',
+  validateSearch: (search: Record<string, unknown>): { periodo?: PeriodKind | undefined } => ({
+    periodo: parsePeriodKind(search.periodo),
+  }),
   component: lazyRouteComponent(() => import('@/pages/dashboard-page'), 'DashboardPage'),
 });
 
