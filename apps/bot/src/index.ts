@@ -6,8 +6,13 @@ import {
   PermissionFlagsBits,
   type Guild,
 } from "discord.js";
+import { randomUUID } from "node:crypto";
+import { createDb, findErrorCode, insertRawVoiceEvents } from "@studyrooms/db";
 import { createBotHandlers, type GuildView } from "./bot-handlers.ts";
 import { loadConfig } from "./config.ts";
+import { DiskQueue, type OpenResult } from "./event-queue.ts";
+import { createEventWriter } from "./event-writer.ts";
+import { toRow } from "./raw-event.ts";
 import { createShutdown } from "./shutdown.ts";
 import { quoteForLog } from "./voice-event.ts";
 
@@ -17,6 +22,52 @@ if (!config.ok) {
   process.exit(1);
 }
 for (const warning of config.warnings) console.warn(`[bot] aviso: ${warning}`);
+
+// A fila em disco guarda cada evento antes de ir ao banco: com o banco fora ou o processo morto,
+// nada se perde. No container (read_only), a pasta é um volume (veja compose.yaml).
+let opened: OpenResult;
+try {
+  opened = DiskQueue.open(config.queueDir);
+} catch (error) {
+  console.error(
+    `[fila] erro: não foi possível abrir a fila em disco (código: ${findErrorCode(error) ?? "desconhecido"}). Confira BOT_QUEUE_DIR.`,
+  );
+  process.exit(1);
+}
+if (opened.loaded > 0) console.log(`[fila] ${opened.loaded} evento(s) pendente(s) de uma execução anterior.`);
+if (opened.damaged > 0) {
+  console.warn(`[fila] aviso: ${opened.damaged} linha(s) ilegível(is) separada(s) na quarentena.`);
+}
+
+let stopping = false;
+// Uma conexão só, fechada depois de 5 s ociosa: conexão aberta à toa impede o Neon de suspender.
+// Os prazos evitam que um banco que não responde prenda a fila.
+const database = createDb(config.databaseUrl, {
+  pool: { max: 1, idleTimeoutMillis: 5_000, connectionTimeoutMillis: 10_000, queryTimeoutMillis: 15_000 },
+  onPoolError: (code) => {
+    if (!stopping) console.warn(`[db] aviso: conexão ociosa encerrada pelo banco (código: ${code ?? "desconhecido"}).`);
+  },
+});
+const writer = createEventWriter({
+  queue: opened.queue,
+  insert: (events) => insertRawVoiceEvents(database.db, events.map(toRow)),
+  log: (line) => console.log(line),
+  now: () => new Date(),
+  newKey: () => randomUUID(),
+  setTimer: (fn, ms) => setTimeout(fn, ms),
+  clearTimer: (handle) => clearTimeout(handle as NodeJS.Timeout),
+});
+writer.start();
+
+/** Última tentativa de gravar a fila; o que não couber no prazo do encerramento fica no disco. */
+async function closeStorage(): Promise<void> {
+  stopping = true;
+  try {
+    await writer.close();
+  } finally {
+    await database.close().catch(() => {});
+  }
+}
 
 // Só com GuildVoiceStates não chega GUILD_CREATE: o cache de canais fica vazio, sem nome de
 // canal e sem o estado de voz inicial. Nenhuma das duas intents é privilegiada, e o bot não lê mensagens.
@@ -28,6 +79,7 @@ const handlers = createBotHandlers({
   allowlist: config.allowlist,
   log: (line) => console.log(line),
   now: () => new Date(),
+  record: (event) => writer.record(event),
 });
 
 function guildView(guild: Guild): GuildView {
@@ -81,7 +133,7 @@ client.on(Events.Error, (error) => {
 const shutdown = createShutdown({
   graceMs: 3_000,
   stop: () => handlers.stop(),
-  destroy: () => client.destroy(),
+  destroy: () => Promise.all([client.destroy(), closeStorage()]),
   exit: (code) => process.exit(code),
   setTimer: (fn, ms) => setTimeout(fn, ms),
 });
@@ -99,5 +151,5 @@ client.login(config.token).catch(async (error: { code?: unknown; name?: unknown 
   );
   process.exitCode = 1;
   handlers.stop();
-  await client.destroy();
+  await Promise.all([client.destroy(), closeStorage()]);
 });

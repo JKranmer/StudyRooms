@@ -1,11 +1,25 @@
+import { fileURLToPath } from "node:url";
+
 export type BotConfig =
-  | { ok: true; token: string; allowlist: Set<string>; warnings: string[] }
+  | {
+      ok: true;
+      token: string;
+      /** Lista de consentimento explícito da coleta antecipada (D-29). */
+      allowlist: Set<string>;
+      databaseUrl: string;
+      queueDir: string;
+      warnings: string[];
+    }
   | { ok: false; error: string };
 
 type Env = Record<string, string | undefined>;
 
 const BOM = "﻿";
 const ALLOWLIST = "BOT_TEST_ALLOWLIST_USER_IDS";
+const DATABASE_URL = "BOT_DATABASE_URL";
+
+/** Fila em disco fora do container: `.data/bot-queue` na raiz do repositório, fora do Git. */
+export const DEFAULT_QUEUE_DIR = fileURLToPath(new URL("../../../.data/bot-queue", import.meta.url));
 const ALLOWLIST_EXAMPLE = "123456789012345678,234567890123456789";
 
 /**
@@ -50,8 +64,9 @@ function parseAllowlist(raw: string | undefined): AllowlistResult {
 export function loadConfig(env: Env): BotConfig {
   const tokenVar = readEnv(env, "DISCORD_BOT_TOKEN");
   const allowlistVar = readEnv(env, ALLOWLIST);
+  const databaseVar = readEnv(env, DATABASE_URL);
   const warnings: string[] = [];
-  if (tokenVar.hadBom || allowlistVar.hadBom) {
+  if (tokenVar.hadBom || allowlistVar.hadBom || databaseVar.hadBom) {
     warnings.push(
       "o .env começa com BOM (marca de UTF-8); a primeira variável foi lida mesmo assim. Salve o arquivo como UTF-8 sem BOM.",
     );
@@ -68,12 +83,35 @@ export function loadConfig(env: Env): BotConfig {
 
   const allowlist = parseAllowlist(allowlistVar.value);
   if (!allowlist.ok) return allowlist;
-  // Sem allowlist, nada seria logado: falhar é mais claro do que ficar mudo.
+  // Sem allowlist, nada seria logado nem gravado: falhar é mais claro do que ficar mudo.
   if (allowlist.ids.size === 0) {
     return {
       ok: false,
       error: `${ALLOWLIST} vazio. Informe ao menos um ID de usuário (veja .env.example).`,
     };
   }
-  return { ok: true, token, allowlist: allowlist.ids, warnings: [...warnings, ...allowlist.warnings] };
+
+  // A URL nunca entra na mensagem: ela contém a senha do banco.
+  const databaseUrl = databaseVar.value?.trim();
+  if (!databaseUrl) {
+    return {
+      ok: false,
+      error: `${DATABASE_URL} não definida. Sem ela, o bot não teria onde gravar os eventos (veja .env.example).`,
+    };
+  }
+  if (!/^postgres(ql)?:\/\//.test(databaseUrl)) {
+    return {
+      ok: false,
+      error: `${DATABASE_URL} inválida: deve começar com postgres:// ou postgresql:// (veja .env.example).`,
+    };
+  }
+  const queueDir = readEnv(env, "BOT_QUEUE_DIR").value?.trim() || DEFAULT_QUEUE_DIR;
+  return {
+    ok: true,
+    token,
+    allowlist: allowlist.ids,
+    databaseUrl,
+    queueDir,
+    warnings: [...warnings, ...allowlist.warnings],
+  };
 }

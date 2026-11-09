@@ -11,6 +11,9 @@ PASSO-A-PASSO-CONTAS.md
 # Backups locais do banco (D-18: arquivo físico, nunca no Git)
 backups/
 
+# Fila em disco do bot fora do Docker (F1-47): tem IDs do Discord
+.data/
+
 # Dependências
 node_modules/
 

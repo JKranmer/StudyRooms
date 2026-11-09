@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createBotHandlers, type GuildView } from "./bot-handlers.ts";
+import type { RawEventInput } from "./raw-event.ts";
 
 const me = "111";
 const other = "222";
@@ -18,15 +19,25 @@ function guild(states: Record<string, string | null> = {}, id = "g1"): GuildView
 
 function setup() {
   const lines: string[] = [];
+  const records: RawEventInput[] = [];
   let ms = Date.parse("2026-11-07T01:30:00.000Z");
   const handlers = createBotHandlers({
     allowlist: new Set([me]),
     log: (line) => lines.push(line),
     now: () => new Date(ms),
+    record: (event) => records.push(event),
   });
   return {
     handlers,
     lines,
+    records,
+    /** Resumo dos eventos gravados desde a última chamada: tipo, usuário, de, para e horário. */
+    takeRecords: () =>
+      records
+        .splice(0)
+        .map((e) =>
+          [e.eventType, e.guildId, e.discordUserId, e.fromChannelId, e.toChannelId, e.occurredAt.toISOString()].join(" "),
+        ),
     advance: (seconds: number) => {
       ms += seconds * 1000;
     },
@@ -216,4 +227,99 @@ test("nome de canal hostil não quebra a linha do estado inicial", () => {
   const g: GuildView = { ...guild({ [me]: "a" }), channelName: () => "x falso‮" };
   handlers.onClientReady([g]);
   assert.equal(take()[0], `${T0} já estava canal="x\\u2028falso\\u202e" id=a usuario=${me}`);
+});
+
+// F1-47: o que vai para o banco (D-30).
+const T = T0;
+
+test("ao iniciar, grava bot_start e voice_present só de quem consentiu", () => {
+  const { handlers, takeRecords } = setup();
+  handlers.onClientReady([guild({ [me]: "a", [other]: "b" })]);
+  assert.deepEqual(takeRecords(), [`bot_start     ${T}`, `voice_present g1 ${me}  a ${T}`]);
+});
+
+test("entrada, troca e saída de quem consentiu viram eventos; os de outra pessoa, não", () => {
+  const { handlers, takeRecords, lines } = setup();
+  const g = guild();
+  handlers.onClientReady([g]);
+  takeRecords();
+  handlers.onVoiceState(g, me, "a");
+  handlers.onVoiceState(g, other, "a");
+  handlers.onVoiceState(g, me, "b");
+  handlers.onVoiceState(g, other, null);
+  handlers.onVoiceState(g, me, null);
+  assert.deepEqual(takeRecords(), [
+    `voice_join g1 ${me}  a ${T}`,
+    `voice_move g1 ${me} a b ${T}`,
+    `voice_leave g1 ${me} b  ${T}`,
+  ]);
+  assert.ok(!lines.some((line) => line.includes(other)), "quem não consentiu apareceu no log");
+});
+
+test("mudo e transmissão (mesmo canal) não geram evento", () => {
+  const { handlers, takeRecords } = setup();
+  const g = guild({ [me]: "a" });
+  handlers.onClientReady([g]);
+  takeRecords();
+  handlers.onVoiceState(g, me, "a");
+  handlers.onVoiceState(g, me, "a");
+  assert.deepEqual(takeRecords(), []);
+});
+
+test("queda e retomada geram bot_disconnect e bot_resume, e a reconciliação grava o que mudou", () => {
+  const { handlers, takeRecords, advance } = setup();
+  handlers.onClientReady([guild({ [me]: "a" })]);
+  takeRecords();
+  handlers.onReconnecting();
+  handlers.onReconnecting();
+  advance(60);
+  const later = "2026-11-07T01:31:00.000Z";
+  handlers.onGuildAvailable(guild({ [me]: "b" }));
+  handlers.onShardReady();
+  assert.deepEqual(takeRecords(), [
+    `bot_disconnect     ${T}`,
+    `voice_move g1 ${me} a b ${later}`,
+    `bot_resume     ${later}`,
+  ]);
+});
+
+test("reconciliação grava quem continua na call e quem saiu durante a queda", () => {
+  const { handlers, takeRecords } = setup();
+  handlers.onClientReady([guild({ [me]: "a" }, "g1"), guild({ [me]: "b" }, "g2")]);
+  takeRecords();
+  handlers.onReconnecting();
+  handlers.onGuildAvailable(guild({ [me]: "a" }, "g1"));
+  handlers.onGuildAvailable(guild({}, "g2"));
+  handlers.onResume(0);
+  assert.deepEqual(takeRecords(), [
+    `bot_disconnect     ${T}`,
+    `voice_present g1 ${me}  a ${T}`,
+    `voice_leave g2 ${me} b  ${T}`,
+    `bot_resume     ${T}`,
+  ]);
+});
+
+test("servidor indisponível ao iniciar grava a presença quando ele chega", () => {
+  const { handlers, takeRecords } = setup();
+  handlers.onClientReady([{ ...guild({ [me]: "a" }), available: false }]);
+  handlers.onGuildAvailable(guild({ [me]: "a" }));
+  assert.deepEqual(takeRecords(), [`bot_start     ${T}`, `voice_present g1 ${me}  a ${T}`]);
+});
+
+test("stop grava bot_stop uma vez e, depois dele, nada mais é gravado", () => {
+  const { handlers, takeRecords } = setup();
+  const g = guild();
+  handlers.onClientReady([g]);
+  takeRecords();
+  handlers.stop();
+  handlers.stop();
+  handlers.onVoiceState(g, me, "a");
+  handlers.onReconnecting();
+  assert.deepEqual(takeRecords(), [`bot_stop     ${T}`]);
+});
+
+test("stop antes de conectar não grava bot_stop (não houve bot_start)", () => {
+  const { handlers, takeRecords } = setup();
+  handlers.stop();
+  assert.deepEqual(takeRecords(), []);
 });

@@ -14,12 +14,17 @@ services:
         required: true
     # tini como PID 1: repassa SIGINT e SIGTERM ao Node e recolhe processos órfãos.
     init: true
-    # Erro fatal (token inválido, allowlist malformada, código sem reconexão) sai com código 1.
+    # Erro fatal (token inválido, allowlist malformada, BOT_DATABASE_URL ausente, código sem
+    # reconexão) sai com código 1.
     # O limite evita laço: depois de 5 tentativas, o container fica parado e o erro, visível no log.
     restart: on-failure:5
     # O bot sai em até 3 s depois do sinal, mesmo com login ou reconexão pendentes.
     stop_grace_period: 10s
     read_only: true
+    # Única pasta gravável: a fila em disco dos eventos ainda não gravados no banco. Sobrevive a
+    # `docker compose down` e a reinícios; só `down -v` a apaga (e, com ela, o que estiver pendente).
+    volumes:
+      - bot-queue:/var/lib/studyrooms-bot
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     logging:
@@ -60,5 +65,7 @@ services:
         max-file: "3"
 
 volumes:
+  # Fila em disco do bot (F1-47): eventos que ainda não chegaram ao banco.
+  bot-queue:
   # Dados do banco local. `docker compose down` mantém; só `down -v` apaga.
   db-data:

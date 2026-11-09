@@ -1,4 +1,5 @@
-# Lista de permissão: tudo fica fora do contexto de build, exceto o que o bot precisa.
+# Lista de permissão: tudo fica fora do contexto de build, exceto o que o bot precisa
+# (inclusive o código de packages/db, sem os testes nem as migrations).
 # Assim o `.env` (com o token) e qualquer outro segredo nunca chegam ao Docker.
 *
 !package.json
@@ -7,3 +8,6 @@
 !apps/bot/package.json
 !apps/bot/tsconfig.json
 !apps/bot/src/
+!packages/db/package.json
+!packages/db/tsconfig.json
+!packages/db/src/

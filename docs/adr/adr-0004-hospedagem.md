@@ -124,12 +124,13 @@ Sem allowlist, todos os usuários dividem as 400 h, 1 GB e os limites diários. 
 
 O backup nativo do Neon não protege o histórico, então é preciso um dump externo.
 
-**Decisão do usuário:** o dump diário roda pela VM. O destino continua em aberto, com levantamento pendente. Pontos a tratar:
+**Decisão do usuário (D-18 e D-31, 2026-11-09), que substitui a anterior, de rodar o dump pela VM:** o dump é um arquivo físico gerado no PC do usuário, na pasta `backups/` do repositório (fora do Git, já no `.gitignore`), diariamente, quando o PC estiver ligado. É a forma inicial; a definitiva será revista depois que tudo estiver no ar e funcionando (D-18). Pontos a tratar na F1-24:
 
-- se a F0-06 levar a um provedor sem VM, como o Northflank Sandbox, é preciso rever onde o dump roda;
-- a VM precisa de uma credencial só de leitura, separada, já que o bot grava pela API;
-- o dump acorda o banco e provavelmente consome a saída de 5 GB/mês (não confirmado);
-- a retenção precisa respeitar a exclusão de conta: backups expiram em até 30 dias.
+- o dump usa uma credencial só de leitura, separada da credencial de escrita do bot (F1-48);
+- o dump acorda o banco e consome horas e saída do Neon (5 GB/mês); a F1-24 mede quanto por dump;
+- com o PC desligado não há dump no dia: o histórico de 6 h do Neon não cobre essa lacuna;
+- a retenção precisa respeitar a exclusão de conta: dumps com mais de 30 dias são apagados (D-10);
+- o arquivo fica só no disco do PC: perder o disco perde os dumps. Uma cópia fora da máquina entra na revisão de D-18.
 
 Os termos do GitHub Actions restringem usos não ligados ao desenvolvimento ("develop and test"; em runners hospedados, nada "unrelated to the production, testing, deployment, or publication" do projeto). Não apoiar o backup no Actions sem revisar.
 
@@ -164,15 +165,15 @@ A imagem do bot precisa rodar na arquitetura escolhida (x86 no E2.1.Micro, ARM n
   - A documentação do Discord não oferece voz por [webhook](https://docs.discord.com/developers/events/webhook-events); só pelo Gateway.
   - A precisão fica em cerca de 1 min.
   - O Workers Free tem [50 subrequests por invocação e 5 Cron Triggers por conta](https://developers.cloudflare.com/workers/platform/limits/), e não há endpoint que liste todos os estados de voz de um servidor. Isso limita a escala numa Fase 1 aberta.
-  - O backup precisaria sair da VM.
+  - O backup precisaria sair da VM (motivo da época; hoje o dump roda no PC do usuário, D-31).
   - Nunca testados: a resposta para quem não está em call e se o bot precisa ter conectado ao Gateway.
 
 ## Pendências
 
 - [ ] F0-06: bot no provedor candidato, com resultado medido (72 h de estabilidade e 7 dias de observação na Oracle); define o provedor final.
 - [ ] F0-07: SPA e API no mesmo Worker e cookie de refresh.
-- [ ] Levantar e escolher o destino do backup.
-- [ ] F1-24: backup externo e restauração testada.
+- [x] Destino inicial do backup: dump diário no PC do usuário, em `backups/` (D-31). A forma definitiva será revista depois (D-18).
+- [ ] F1-24: dump local e restauração testada.
 - [x] F0-05: exigência de cartão na Oracle, confirmada em 2026-11-06.
 - [ ] Exigência de cartão na Cloudflare: não confirmada; verificar ao criar a conta (U-03).
 - [ ] F0-10: Hyperdrive com Neon no plano gratuito, resolvendo o conflito entre as fontes.
