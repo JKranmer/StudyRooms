@@ -2,7 +2,7 @@
 
 > Nome provisório. Controle de hábitos de estudo com salas de estudo integradas ao Discord: registre o tempo manualmente, por um timer no site ou automaticamente em canal de voz, e acompanhe a evolução por semana, mês, trimestre, semestre e ano, além dos horários em que você mais e menos estuda.
 
-**Status:** Fase 0 em andamento (`apps/bot` loga no console quem já está em call ao iniciar, entrada, saída, troca de canal de voz, queda e retomada da conexão, sem gravar nada). Hospedagem e regras de produto decididas em 2026-11-06; o provedor final do bot segue pendente até a F0-06.
+**Status:** Fase 0 em andamento, com a coleta antecipada sendo preparada. `apps/bot` registra quem já está em call ao iniciar, entrada, saída, troca de canal de voz, queda e retomada da conexão, e grava esses eventos brutos no Postgres (`packages/db`), com fila em disco para quando o banco estiver fora. Só registra quem está na lista de consentimento. A coleta real começa quando o bot estiver na VM gravando no Neon (F1-49). `apps/web` tem a base da SPA, com login simulado. Hospedagem e regras de produto decididas em 2026-11-06; o provedor final do bot segue pendente até a F0-06.
 
 ## Problema e motivação
 
@@ -43,7 +43,7 @@ Aberta a qualquer pessoa, sem allowlist.
 | API | Hono (sujeito à prova) + Zod (OpenAPI gerado dos schemas) em Cloudflare Workers | [ADR 0010](docs/adr/adr-0010-api-cloudflare-workers.md) |
 | Banco | PostgreSQL + Drizzle ORM; Neon via Hyperdrive | [ADR 0004](docs/adr/adr-0004-hospedagem.md) |
 | Bot | discord.js (intents `Guilds` e `GuildVoiceStates`, nenhuma privilegiada), em container; VM Oracle Always Free como primeira opção | [ADR 0004](docs/adr/adr-0004-hospedagem.md), a confirmar pela F0-06 |
-| Testes | Vitest, Testing Library, Playwright, Testcontainers | planejado |
+| Testes | Vitest, Testing Library, Playwright, Testcontainers; `node:test` no bot | em uso: Vitest e Testcontainers em `packages/db`, `node:test` e Testcontainers em `apps/bot`; Playwright planejado |
 | Infra | Wrangler, Docker (bot e banco local), GitHub Actions, hospedagem gratuita | [ADR 0004](docs/adr/adr-0004-hospedagem.md) |
 
 TypeScript de ponta a ponta: os schemas Zod em `packages/shared` são a fonte única de verdade dos contratos entre front, API e bot.
@@ -66,16 +66,16 @@ flowchart LR
 
 SPA e API no mesmo Worker é uma possibilidade a provar na F0-07.
 
-Estrutura do repositório. Hoje só existem `apps/bot` (spike de log de voz) e `docs/`; o restante está marcado como planejado:
+Estrutura do repositório. Hoje existem `apps/web`, `apps/bot`, `packages/db` e `docs/`; o restante está marcado como planejado:
 
 ```
 apps/
   web/      # SPA (React + Vite), base com login simulado
   api/      # planejado: API HTTP (Hono em Cloudflare Workers)
-  bot/      # bot do Discord (spike de log de voz), com Dockerfile; compose.yaml na raiz
-packages/   # planejado
+  bot/      # bot do Discord: registra voz e grava eventos brutos no banco, com Dockerfile; compose.yaml na raiz
+packages/
   shared/   # planejado: schemas Zod, tipos, lógica pura (streak, fatiamento de sessões)
-  db/       # planejado: schema e migrations
+  db/       # schema Drizzle, migrations e gravação dos eventos brutos de voz
   config/   # planejado: tsconfig, eslint, prettier
 docs/
   adr/          # decisões de arquitetura
@@ -93,7 +93,7 @@ docs/
 
 ## Como rodar
 
-Hoje só existe o spike do bot. Requer Node 24 (`>=24.19.0`) e pnpm 11.22.0, fixados em `package.json`, e um `.env` na raiz, copiado do `.env.example` e preenchido:
+Requer Node 24 (`>=24.19.0`) e pnpm 11.22.0, fixados em `package.json`, e um `.env` na raiz, copiado do `.env.example` e preenchido:
 
 ```
 pnpm install --frozen-lockfile
@@ -103,6 +103,15 @@ pnpm --filter @studyrooms/bot start
 ```
 
 O último comando conecta ao Discord e fica rodando até `Ctrl+C`. O bot precisa ter sido convidado com o escopo `bot` e poder ver o canal de voz.
+
+### Gravação dos eventos no banco
+
+O bot grava em `raw_voice_events` (coleta antecipada, D-26) entrada, saída, troca, `voice_present` (quem já estava em call ao conectar ou ao voltar de uma queda) e os marcos `bot_start`, `bot_disconnect`, `bot_resume`, `bot_heartbeat` e `bot_stop` (D-30). Precisa de `BOT_DATABASE_URL` no `.env`, com as migrations já aplicadas no banco (veja abaixo); sem ela, o bot não sobe.
+
+- **Só quem consentiu.** Quem não está em `BOT_TEST_ALLOWLIST_USER_IDS`, a lista de consentimento (D-29), não é gravado nem aparece no log. Mudo, transmissão e câmera não geram gravação.
+- **Fila em disco.** Cada evento é gravado primeiro num arquivo (`BOT_QUEUE_DIR`; fora do Docker, `.data/bot-queue`, fora do Git) e só sai de lá quando o banco confirma. Com o banco fora, o bot segue rodando e tenta de novo em 5 s, 15 s, 30 s, 1 min, 2 min e depois a cada 5 min. Matar o processo não perde a fila, e cada evento tem uma chave única, então o reenvio não duplica.
+- **Quarentena.** Um evento recusado pelo banco (dado inválido) vai para `quarantine.jsonl`, na mesma pasta, sem travar os outros. A fila e a quarentena têm IDs do Discord: não compartilhe esses arquivos.
+- **Acessos ao banco.** Sem eventos, o único acesso é o sinal a cada 30 min (D-19). Cada acesso aparece no log como `[db] <horário> acesso=N motivo=eventos|sinal ...`, para estimar as horas do Neon. O log mostra só o código do erro, nunca a mensagem nem a URL.
 
 ### Bot em Docker
 
@@ -118,7 +127,8 @@ docker compose down                 # remove o container e a rede
 
 - **Segredo fora da imagem.** O token chega só em tempo de execução, pelo `env_file` do compose. O `.dockerignore` deixa o `.env` fora do contexto de build, e `docker history` e `docker image inspect` não mostram o token. Já `docker inspect` do **container** mostra as variáveis dele, como em qualquer container: não compartilhe essa saída.
 - **Encerramento.** `Ctrl+C` e `docker compose stop` encerram o bot em até 3 s, mesmo com login ou reconexão pendentes.
-- **Reinício limitado.** Erro fatal (token inválido, allowlist malformada, conexão encerrada sem reconexão) sai com código 1. O container tenta de novo até 5 vezes e então fica parado, com o erro no log: corrija o `.env` e rode `docker compose up bot` de novo.
+- **Fila em volume.** O container é `read_only`; a fila em disco fica no volume `bot-queue`, montado em `/var/lib/studyrooms-bot`. `docker compose down` mantém a fila; `down -v` apaga o que estiver pendente. Com o bot no compose e o banco local, o host de `BOT_DATABASE_URL` é `db`.
+- **Reinício limitado.** Erro fatal (token inválido, allowlist malformada, `BOT_DATABASE_URL` ausente, conexão encerrada sem reconexão) sai com código 1. O container tenta de novo até 5 vezes e então fica parado, com o erro no log: corrija o `.env` e rode `docker compose up bot` de novo.
 - **Outro arquivo de ambiente.** `BOT_ENV_FILE` aponta o `env_file` para outro arquivo, por exemplo um com valores falsos para teste: `docker compose --env-file .env.teste up bot`, com `BOT_ENV_FILE=.env.teste` dentro dele.
 - **Testes no Linux.** `docker build -f apps/bot/Dockerfile --target test .` roda typecheck e testes dentro da imagem, onde `Ctrl+C` e `SIGTERM` são sinais reais.
 
@@ -130,6 +140,7 @@ docker compose down                 # remove o container e a rede
 docker compose up -d --wait db        # Postgres 17 em 127.0.0.1, com dados no volume db-data
 pnpm --filter @studyrooms/db migrate  # aplica as migrations pendentes; rodar de novo não muda nada
 pnpm --filter @studyrooms/db test     # testes de integração: cada arquivo sobe seu Postgres (Testcontainers)
+pnpm --filter @studyrooms/bot test:integration  # bot e fila contra Postgres real, com o banco caindo e voltando
 ```
 
 - **Testes precisam do Docker ligado.** O Testcontainers usa o `DOCKER_HOST` do Windows (`tcp://localhost:2375`). Com a distro `docker-engine` desligada, os testes falham com "Could not find a working container runtime strategy".
@@ -185,11 +196,12 @@ O motor é o Docker Engine dentro da distro WSL `docker-engine`. **O início é 
 ## Decisões em aberto
 
 - **Provedor final do bot.** Oracle Always Free é a primeira opção; a decisão sai com o resultado da F0-06.
-- **Destino do backup.** O dump roda pela VM; o destino depende de levantamento ainda pendente.
+- **Forma definitiva do backup.** Por enquanto, dump diário no PC do usuário, em `backups/`, fora do Git (D-31, F1-24); a forma definitiva será revista depois que tudo estiver no ar (D-18).
 
 ## Roadmap
 
-- [ ] Fase 0: spike do bot (loga entrada e saída de voz no console) e deploy de prova
+- [ ] Fase 0: spike do bot (registra entrada e saída de voz) e deploy de prova
+- [ ] Coleta antecipada: bot na VM gravando eventos brutos no Neon, com backup local
 - [ ] Fase 1: tracker completo, em produção, usado diariamente
 - [ ] Fase 2: salas de estudo em tempo real
 
