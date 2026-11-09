@@ -1,0 +1,29 @@
+name: studyrooms
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: apps/bot/Dockerfile
+      target: runtime
+    image: studyrooms-bot:local
+    # O token só entra em tempo de execução, lido do `.env` da raiz (nunca na imagem).
+    # BOT_ENV_FILE permite apontar outro arquivo, por exemplo um com valores falsos para teste.
+    env_file:
+      - path: ${BOT_ENV_FILE:-.env}
+        required: true
+    # tini como PID 1: repassa SIGINT e SIGTERM ao Node e recolhe processos órfãos.
+    init: true
+    # Erro fatal (token inválido, allowlist malformada, código sem reconexão) sai com código 1.
+    # O limite evita laço: depois de 5 tentativas, o container fica parado e o erro, visível no log.
+    restart: on-failure:5
+    # O bot sai em até 3 s depois do sinal, mesmo com login ou reconexão pendentes.
+    stop_grace_period: 10s
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

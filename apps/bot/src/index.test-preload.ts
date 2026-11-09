@@ -2,8 +2,9 @@
 // - aponta o REST do discord.js para o Discord falso local (FAKE_DISCORD_PORT) e bloqueia
 //   qualquer outro host, para o teste nunca sair da máquina;
 // - tira a espera de 5 s entre identificações, que deixaria o teste lento;
-// - recebe comandos do teste pelo canal IPC: emitir SIGINT (o Ctrl+C real não é automatizável
-//   no Windows) e emitir o evento `error` do cliente (o gateway não tem como provocá-lo).
+// - recebe comandos do teste pelo canal IPC: emitir SIGINT ou SIGTERM (no Windows, o Ctrl+C real
+//   não é automatizável e `kill` mata o processo sem sinal) e emitir o evento `error` do cliente
+//   (o gateway não tem como provocá-lo).
 import dns from "node:dns";
 import { createRequire } from "node:module";
 
@@ -42,6 +43,7 @@ discord.Client.prototype.login = function (this: typeof client, ...args: unknown
 
 process.on("message", (command: unknown) => {
   if (command === "sigint") process.emit("SIGINT", "SIGINT");
+  if (command === "sigterm") process.emit("SIGTERM", "SIGTERM");
   if (command === "client-error") {
     const error = new Error("SEGREDO-NA-MENSAGEM-DO-ERRO");
     error.name = "FakeClientError";

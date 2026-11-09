@@ -5,7 +5,10 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, describe, test } from "node:test";
 
@@ -37,6 +40,12 @@ class FakeDiscord {
   identifies = 0;
   resumes = 0;
   closeOnIdentify: number | null = null;
+  /** Para simular login ou reconexão pendentes: REST sem resposta, gateway sem Hello ou sem READY. */
+  hangRest = false;
+  withholdHello = false;
+  withholdReady = false;
+  restRequests = 0;
+  connections = 0;
   readonly voice = new Map<string, string>();
   #http: Server | null = null;
   #wss: { clients: Set<Socket>; close(): void; on(e: string, l: (ws: Socket) => void): void } | null = null;
@@ -45,6 +54,8 @@ class FakeDiscord {
 
   async start(): Promise<void> {
     this.#http = createServer((req, res) => {
+      this.restRequests += 1;
+      if (this.hangRest) return;
       res.setHeader("content-type", "application/json");
       if (req.url?.includes("/gateway/bot")) {
         res.end(
@@ -75,7 +86,9 @@ class FakeDiscord {
 
   #onConnection(ws: Socket): void {
     this.#ws = ws;
+    this.connections += 1;
     ws.on("error", () => {});
+    if (this.withholdHello) return;
     ws.send(JSON.stringify({ op: 10, d: { heartbeat_interval: 30_000 } }));
     ws.on("message", (raw) => {
       if (ws !== this.#ws) return;
@@ -90,6 +103,7 @@ class FakeDiscord {
     this.identifies += 1;
     this.intents = d.intents as number;
     if (this.closeOnIdentify) return ws.close(this.closeOnIdentify);
+    if (this.withholdReady) return;
     this.#session = { id: `s${this.identifies}`, seq: 0, buffer: [] };
     this.#dispatch("READY", {
       v: 10,
@@ -175,11 +189,22 @@ function voiceState(userId: string, channelId: string | null) {
   };
 }
 
+/** Espera uma condição do Discord falso (não há linha de log nesses momentos). */
+async function until(condition: () => boolean, ms = WAIT_MS): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error("condição não atingida a tempo");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 const children = new Set<ChildProcess>();
 // Garantia extra: se o runner sair por qualquer caminho, nenhum bot fica vivo.
 process.on("exit", () => {
   for (const child of children) child.kill();
 });
+
+type BotOptions = { envFile?: string; allowlist?: string };
 
 class BotProcess {
   readonly lines: { stream: "out" | "err"; text: string }[] = [];
@@ -188,15 +213,17 @@ class BotProcess {
   #cursor = 0;
   #waiters = new Set<() => void>();
 
-  constructor(fake: FakeDiscord) {
-    this.#child = spawn(process.execPath, ["--import", PRELOAD, "src/index.ts"], {
+  /** Com `envFile`, token e allowlist vêm desse arquivo, lido pelo `--env-file` do Node, como no `start`. */
+  constructor(fake: FakeDiscord, { envFile, allowlist = ME }: BotOptions = {}) {
+    const args = envFile ? [`--env-file=${envFile}`] : [];
+    const config = envFile ? {} : { DISCORD_BOT_TOKEN: FAKE_TOKEN, BOT_TEST_ALLOWLIST_USER_IDS: allowlist };
+    this.#child = spawn(process.execPath, [...args, "--import", PRELOAD, "src/index.ts"], {
       cwd: BOT_DIR,
       stdio: ["ignore", "pipe", "pipe", "ipc"],
       env: {
         PATH: process.env.PATH,
         SystemRoot: process.env.SystemRoot,
-        DISCORD_BOT_TOKEN: FAKE_TOKEN,
-        BOT_TEST_ALLOWLIST_USER_IDS: ME,
+        ...config,
         FAKE_DISCORD_PORT: String(fake.port),
       },
     });
@@ -268,7 +295,7 @@ class BotProcess {
     }
   }
 
-  send(command: "sigint" | "client-error"): void {
+  send(command: "sigint" | "sigterm" | "client-error"): void {
     this.#child.send(command);
   }
 
@@ -276,6 +303,12 @@ class BotProcess {
   interrupt(): void {
     if (process.platform === "win32") this.send("sigint");
     else this.#child.kill("SIGINT");
+  }
+
+  /** `docker stop`: SIGTERM real fora do Windows; no Windows, emitido pelo preload. */
+  terminate(): void {
+    if (process.platform === "win32") this.send("sigterm");
+    else this.#child.kill("SIGTERM");
   }
 
   async kill(): Promise<void> {
@@ -287,11 +320,15 @@ class BotProcess {
 }
 
 /** Sobe o Discord falso e o bot e garante que os dois são encerrados, passe ou falhe o teste. */
-async function withBot(setup: (fake: FakeDiscord) => void, body: (bot: BotProcess, fake: FakeDiscord) => Promise<void>) {
+async function withBot(
+  setup: (fake: FakeDiscord) => void,
+  body: (bot: BotProcess, fake: FakeDiscord) => Promise<void>,
+  options: BotOptions = {},
+) {
   const fake = new FakeDiscord();
   await fake.start();
   setup(fake);
-  const bot = new BotProcess(fake);
+  const bot = new BotProcess(fake, options);
   try {
     await body(bot, fake);
     assert.ok(!bot.output.includes(FAKE_TOKEN), "o token apareceu na saída");
@@ -313,6 +350,7 @@ describe("index.ts contra o Discord falso", { concurrency: true, timeout: 30_000
         fake.setVoice(OTHER, "501");
       },
       async (bot, fake) => {
+        await bot.waitFor(/^\[bot\] aviso: BOT_TEST_ALLOWLIST_USER_IDS: o item 1 tem 3 dígitos/);
         await bot.waitFor(/^\[bot\] conectado como "bot-falso"; servidores: 1\.$/);
         assert.equal(fake.intents, 1 | 128, "intents enviadas no IDENTIFY");
         await bot.waitFor(/ já estava canal="Sala 1" id=501 usuario=111$/);
@@ -321,6 +359,36 @@ describe("index.ts contra o Discord falso", { concurrency: true, timeout: 30_000
         await bot.waitFor(/ trocou de="Sala 1" de_id=501 para="Sala 2" para_id=502 usuario=111$/);
         assert.ok(!bot.output.includes(OTHER), "quem não está na allowlist apareceu");
       },
+    ));
+
+  test(".env com BOM: a primeira variável não se perde e o bot avisa", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bot-env-"));
+    const envFile = join(dir, ".env");
+    writeFileSync(envFile, `﻿DISCORD_BOT_TOKEN=${FAKE_TOKEN}
+BOT_TEST_ALLOWLIST_USER_IDS=${ME}
+`);
+    try {
+      await withBot(
+        () => {},
+        async (bot) => {
+          await bot.waitFor(/^\[bot\] aviso: o \.env começa com BOM/);
+          await bot.waitFor(/^\[bot\] conectado como "bot-falso"/);
+        },
+        { envFile },
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("allowlist malformada impede a subida, com mensagem clara", () =>
+    withBot(
+      () => {},
+      async (bot) => {
+        assert.equal(await bot.waitExit(), 1);
+        assert.match(bot.output, /\[err\] \[bot\] erro: BOT_TEST_ALLOWLIST_USER_IDS malformado: o item 1 /);
+      },
+      { allowlist: `<@${ME}>` },
     ));
 
   test("erro do cliente imprime só o nome", () =>
@@ -347,6 +415,87 @@ describe("index.ts contra o Discord falso", { concurrency: true, timeout: 30_000
         assert.equal(await bot.waitExit(), 0);
         const afterStop = bot.lines.slice(before).map((line) => line.text);
         assert.deepEqual(afterStop, [], "o encerramento não deve logar nada");
+      },
+    ));
+
+  // P1: com login ou reconexão pendentes, o primeiro Ctrl+C não encerrava o bot.
+  const STOP_MS = 5_000;
+  async function interruptCleanly(bot: BotProcess, signal: "SIGINT" | "SIGTERM" = "SIGINT"): Promise<void> {
+    const before = bot.lines.length;
+    if (signal === "SIGINT") bot.interrupt();
+    else bot.terminate();
+    assert.equal(await bot.waitExit(STOP_MS), 0);
+    assert.deepEqual(bot.lines.slice(before), [], "o encerramento não deve logar nada");
+  }
+
+  test("Ctrl+C com o REST do login sem resposta encerra com código 0", () =>
+    withBot(
+      (fake) => (fake.hangRest = true),
+      async (bot, fake) => {
+        await until(() => fake.restRequests > 0);
+        await interruptCleanly(bot);
+      },
+    ));
+
+  test("SIGTERM (docker stop) com o Hello do primeiro login pendente encerra com código 0", () =>
+    withBot(
+      (fake) => (fake.withholdHello = true),
+      async (bot, fake) => {
+        await until(() => fake.connections > 0);
+        await interruptCleanly(bot, "SIGTERM");
+      },
+    ));
+
+  test("SIGTERM (docker stop) com o bot conectado encerra com código 0", () =>
+    withBot(
+      () => {},
+      async (bot) => {
+        await bot.waitFor(/estado inicial: 0 da allowlist/);
+        await interruptCleanly(bot, "SIGTERM");
+      },
+    ));
+
+  test("Ctrl+C com o Hello do primeiro login pendente encerra com código 0", () =>
+    withBot(
+      (fake) => (fake.withholdHello = true),
+      async (bot, fake) => {
+        await until(() => fake.connections > 0);
+        await interruptCleanly(bot);
+      },
+    ));
+
+  test("Ctrl+C com o READY do primeiro login pendente encerra com código 0", () =>
+    withBot(
+      (fake) => (fake.withholdReady = true),
+      async (bot, fake) => {
+        await until(() => fake.identifies > 0);
+        await interruptCleanly(bot);
+      },
+    ));
+
+  test("Ctrl+C durante a reconexão com Hello pendente encerra com código 0", () =>
+    withBot(
+      () => {},
+      async (bot, fake) => {
+        await bot.waitFor(/estado inicial: 0 da allowlist/);
+        fake.withholdHello = true;
+        fake.cut({ invalidate: true });
+        await bot.waitFor(/ queda detectada; reconectando/);
+        await until(() => fake.connections > 1);
+        await interruptCleanly(bot);
+      },
+    ));
+
+  test("Ctrl+C durante a reconexão com READY pendente encerra com código 0", () =>
+    withBot(
+      () => {},
+      async (bot, fake) => {
+        await bot.waitFor(/estado inicial: 0 da allowlist/);
+        fake.withholdReady = true;
+        fake.cut({ invalidate: true });
+        await bot.waitFor(/ queda detectada; reconectando/);
+        await until(() => fake.identifies > 1);
+        await interruptCleanly(bot);
       },
     ));
 

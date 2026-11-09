@@ -8,6 +8,7 @@ import {
 } from "discord.js";
 import { createBotHandlers, type GuildView } from "./bot-handlers.ts";
 import { loadConfig } from "./config.ts";
+import { createShutdown } from "./shutdown.ts";
 import { quoteForLog } from "./voice-event.ts";
 
 const config = loadConfig(process.env);
@@ -15,6 +16,7 @@ if (!config.ok) {
   console.error(`[bot] erro: ${config.error}`);
   process.exit(1);
 }
+for (const warning of config.warnings) console.warn(`[bot] aviso: ${warning}`);
 
 // Só com GuildVoiceStates não chega GUILD_CREATE: o cache de canais fica vazio, sem nome de
 // canal e sem o estado de voz inicial. Nenhuma das duas intents é privilegiada, e o bot não lê mensagens.
@@ -73,12 +75,18 @@ client.on(Events.Error, (error) => {
   console.error(`[bot] erro do cliente: ${error.name}`);
 });
 
-function shutdown(exitCode = 0): void {
-  handlers.stop();
-  void client.destroy().finally(() => process.exit(exitCode));
-}
-process.once("SIGINT", () => shutdown());
-process.once("SIGTERM", () => shutdown());
+// Com login ou reconexão pendentes (Hello ou READY sem chegar), `client.destroy()` não resolve:
+// por isso há um prazo, menor que os 10 s do `docker stop`. No container, o Node pode ser o PID 1,
+// que não tem tratamento padrão de sinal: sem estes handlers, o SIGTERM seria ignorado.
+const shutdown = createShutdown({
+  graceMs: 3_000,
+  stop: () => handlers.stop(),
+  destroy: () => client.destroy(),
+  exit: (code) => process.exit(code),
+  setTimer: (fn, ms) => setTimeout(fn, ms),
+});
+process.on("SIGINT", () => shutdown(0));
+process.on("SIGTERM", () => shutdown(0));
 
 // Só o código do erro é impresso, para nada sensível chegar ao console. Aqui não se usa
 // process.exit: logo após a falha do login, ele aborta o Node no Windows (assert da libuv).

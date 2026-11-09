@@ -3,7 +3,6 @@ import { test } from "node:test";
 import {
   classifyVoiceEvent,
   formatVoiceLogLine,
-  parseAllowlist,
   quoteForLog,
 } from "./voice-event.ts";
 
@@ -94,11 +93,6 @@ test("estado anterior desconhecido fora da allowlist é ignore", () => {
     }),
     "ignore",
   );
-});
-
-test("parseAllowlist separa por vírgula e descarta espaços e vazios", () => {
-  assert.deepEqual([...parseAllowlist(" 111, 222,,")], ["111", "222"]);
-  assert.deepEqual([...parseAllowlist(undefined)], []);
 });
 
 const at = new Date("2026-11-06T22:30:00.000-03:00");

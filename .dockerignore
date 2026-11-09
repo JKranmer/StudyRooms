@@ -1,0 +1,9 @@
+# Lista de permissão: tudo fica fora do contexto de build, exceto o que o bot precisa.
+# Assim o `.env` (com o token) e qualquer outro segredo nunca chegam ao Docker.
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!apps/bot/package.json
+!apps/bot/tsconfig.json
+!apps/bot/src/

@@ -18,11 +18,6 @@ export function classifyVoiceEvent(input: ClassifyInput): VoiceEventType {
   return "move";
 }
 
-export function parseAllowlist(raw: string | undefined): Set<string> {
-  const ids = (raw ?? "").split(",").map((id) => id.trim());
-  return new Set(ids.filter((id) => id !== ""));
-}
-
 export type ChannelRef = { id: string; name: string | null };
 
 type LogContext = {

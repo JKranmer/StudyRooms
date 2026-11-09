@@ -72,7 +72,7 @@ Estrutura do repositório. Hoje só existem `apps/bot` (spike de log de voz) e `
 apps/
   web/      # planejado: SPA
   api/      # planejado: API HTTP (Hono em Cloudflare Workers)
-  bot/      # bot do Discord (spike de log de voz; container planejado)
+  bot/      # bot do Discord (spike de log de voz), com Dockerfile; compose.yaml na raiz
 packages/   # planejado
   shared/   # planejado: schemas Zod, tipos, lógica pura (streak, fatiamento de sessões)
   db/       # planejado: schema e migrations
@@ -104,7 +104,25 @@ pnpm --filter @studyrooms/bot start
 
 O último comando conecta ao Discord e fica rodando até `Ctrl+C`. O bot precisa ter sido convidado com o escopo `bot` e poder ver o canal de voz.
 
-Meta, **ainda não disponível** (o `compose` e o Wrangler não existem no repositório):
+### Bot em Docker
+
+Com o Docker ligado (abaixo) e o mesmo `.env` na raiz, a partir da pasta do projeto:
+
+```
+docker compose up --build bot       # constrói a imagem e mostra o log; Ctrl+C encerra
+docker compose up --build -d bot    # o mesmo, em segundo plano
+docker compose logs -f bot          # acompanha o log
+docker compose stop bot             # encerra (SIGTERM)
+docker compose down                 # remove o container e a rede
+```
+
+- **Segredo fora da imagem.** O token chega só em tempo de execução, pelo `env_file` do compose. O `.dockerignore` deixa o `.env` fora do contexto de build, e `docker history` e `docker image inspect` não mostram o token. Já `docker inspect` do **container** mostra as variáveis dele, como em qualquer container: não compartilhe essa saída.
+- **Encerramento.** `Ctrl+C` e `docker compose stop` encerram o bot em até 3 s, mesmo com login ou reconexão pendentes.
+- **Reinício limitado.** Erro fatal (token inválido, allowlist malformada, conexão encerrada sem reconexão) sai com código 1. O container tenta de novo até 5 vezes e então fica parado, com o erro no log: corrija o `.env` e rode `docker compose up bot` de novo.
+- **Outro arquivo de ambiente.** `BOT_ENV_FILE` aponta o `env_file` para outro arquivo, por exemplo um com valores falsos para teste: `docker compose --env-file .env.teste up bot`, com `BOT_ENV_FILE=.env.teste` dentro dele.
+- **Testes no Linux.** `docker build -f apps/bot/Dockerfile --target test .` roda typecheck e testes dentro da imagem, onde `Ctrl+C` e `SIGTERM` são sinais reais.
+
+Meta, **ainda não disponível** (o Wrangler não existe no repositório):
 
 1. Iniciar o Docker (abaixo).
 2. `docker compose up` sobe o banco local e o bot.
