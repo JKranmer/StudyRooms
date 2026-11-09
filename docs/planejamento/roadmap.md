@@ -31,8 +31,8 @@ Depois de F0-01, há duas linhas que podem andar em paralelo: bot (F0-02, F0-03,
 | F0-01 | Criar o workspace pnpm mínimo com `apps/bot` e `.env.example`. | Rafa | F0-09 | Em clone limpo, `pnpm install --frozen-lockfile` e o typecheck de `apps/bot` terminam com código 0; `.env.example` documenta as variáveis, sem valores reais. | concluída | `chore(repo): cria workspace mínimo com apps/bot` |
 | F0-05 | Confirmar o que o levantamento do ADR 0004 deixou em aberto. | Rafa | nenhuma | ADR 0004 responde, com link oficial e data, se Oracle e Cloudflare exigem cartão e se a exigência fere o critério 3; o que seguir sem resposta fica marcado como não confirmado. | concluída, com ressalva ([notas](#notas-da-fase-0)) | `docs(adr): registra verificação dos planos gratuitos` |
 | F0-02 | Logar no console entrada, saída e troca de canal de voz. | Rafa | F0-01, U-01, U-02, U-06 | Roteiro manual: entrar, trocar e sair geram 3 linhas com tipo, canal e horário UTC; mutar ou transmitir não gera linha; conta fora da allowlist de teste não aparece no log; o código não usa intent privilegiada nem lê mensagens. A allowlist existe só no spike, por privacidade. | concluída ([notas](#notas-da-fase-0)) | `feat(bot): loga eventos de voz no console` |
-| F0-03 | Provar que o bot enxerga quem já está na call ao iniciar e que sobrevive a reconexões. | Rafa | F0-02 | Iniciar com a conta de teste na call gera log do estado atual; após queda de rede simulada, o bot reconecta sozinho e volta a logar eventos; o relatório diz, com teste, se a intent `guilds` é necessária além de `guild_voice_states`. O resultado alimenta o ADR 0007. Trata também os problemas conhecidos atribuídos a ela nas [notas](#notas-da-fase-0). | a fazer | `feat(bot): loga estado de voz na inicialização` |
-| F0-04 | Empacotar o bot em Docker. | Rafa | F0-02, U-05 | `docker compose up bot` repete o roteiro de F0-02; o token não aparece em `docker history` nem em `docker inspect` da imagem. Trata também os problemas conhecidos atribuídos a ela nas [notas](#notas-da-fase-0). | a fazer | `build(bot): adiciona Dockerfile e compose do bot` |
+| F0-03 | Provar que o bot enxerga quem já está na call ao iniciar e que sobrevive a reconexões. | Rafa | F0-02 | Iniciar com a conta de teste na call gera log do estado atual; após queda de rede simulada, o bot reconecta sozinho e volta a logar eventos; o relatório diz, com teste, se a intent `guilds` é necessária além de `guild_voice_states`. O resultado alimenta o ADR 0007. Trata também os problemas conhecidos atribuídos a ela nas [notas](#notas-da-fase-0). | concluída ([notas](#notas-da-fase-0)) | `feat(bot): loga estado de voz na inicialização e reconexões` |
+| F0-04 | Empacotar o bot em Docker. | Rafa | F0-02, U-05 | `docker compose up bot` repete o roteiro de F0-02; o token não aparece em `docker history` nem em `docker inspect` da imagem; Ctrl+C (ou `docker compose stop`) encerra o bot também com login ou reconexão pendente; com o bot saindo com código 1, a política de reinício não entra em laço. Trata também os problemas conhecidos atribuídos a ela nas [notas](#notas-da-fase-0). | a fazer | `build(bot): adiciona Dockerfile e compose do bot` |
 | F0-06 | Colocar o bot na VM candidata e medir a estabilidade. | Rafa | F0-04, F0-05, U-03 | Imagem roda na arquitetura escolhida; bot online por 72 h seguidas, sem intervenção; roteiro de F0-02 funciona no ambiente hospedado; após reiniciar a máquina, o bot volta sozinho; custo apurado no painel é zero; existe runbook de subida. Além das 72 h, 7 dias de observação; na Oracle, CPU, rede e memória comparadas aos limites de reclaim do ADR 0004. Antes do cadastro, o usuário lê as [notas](#notas-da-fase-0). | a fazer | `docs(infra): adiciona runbook do deploy de prova` |
 | F0-10 | Provar uma rota real do Hono em Workers dentro do limite de CPU. | Rafa | F0-01, F0-05, U-03 | Em ambiente publicado, uma rota valida a entrada com Zod, verifica um JWT e consulta o Neon com Drizzle via Hyperdrive; 100 chamadas, incluindo a primeira após um novo deploy, terminam sem erro de limite de CPU; o OpenAPI é gerado dos schemas sem custo relevante por requisição; o ADR 0010 registra as medições e se a espera por I/O conta no limite. Se o Hyperdrive exigir plano pago, a decisão volta ao usuário ([notas](#notas-da-fase-0)). | a fazer | `feat(api): adiciona prova do Hono em Workers` |
 | F0-11 | Provar a saída para Node e a suspensão do Neon com o Hyperdrive conectado. | Rafa | F0-10 | O mesmo código de rotas responde igual em Node; com o Hyperdrive conectado e sem requisições, o painel do Neon mostra a suspensão em até 15 min, e a chamada seguinte responde sem erro. Se o Neon não suspender, a falha vai ao usuário antes de F0-08, pois as 400 h deixam de bastar. | a fazer | `test(api): prova execução em Node e suspensão do Neon` |
@@ -45,18 +45,21 @@ Depois de F0-01, há duas linhas que podem andar em paralelo: bot (F0-02, F0-03,
 
 **F0-05, concluída com ressalva.** A Oracle pede cartão só para verificação. Na Cloudflare, a exigência de cartão não foi confirmada: o usuário anota ao criar a conta (U-03).
 
-**Intent `Guilds`.** A F0-02 usa `Guilds` e `GuildVoiceStates`. O fechamento da decisão sobre `Guilds` fica para a F0-03.
+**F0-03, concluída.** O usuário validou no Discord real o estado inicial: entrar na call antes de ligar o bot gera `já estava`, e ele relatou que funcionou. A reconexão foi coberta no Discord simulado do Theo; a queda de internet real segue em [Testes pendentes do usuário](#testes-pendentes-do-usuário). Pode aparecer `queda detectada` no primeiro login, sem conexão anterior; não afeta o spike e deve ser evitado na reconciliação de F1-21.
+
+**Intent `Guilds`, fechada na F0-03.** São necessárias `Guilds` e `GuildVoiceStates`. Sem `Guilds`, o Discord não envia `GUILD_CREATE` e os canais não entram no cache (medido pelo Rafa).
 
 **Problemas conhecidos, levantados pelo Theo para o Rafa:**
 
-| Severidade | Problema | Tratar em |
-|---|---|---|
-| P1 | O primeiro Ctrl+C não encerra o bot com login pendente | F0-04 |
-| P2 | `JSON.stringify` não escapa U+2028, U+0085, U+009B e U+202E no log | F0-03 |
-| P3 | Allowlist malformada sobe sem aviso | F0-04 |
-| P3 | `.env` com BOM perde a primeira variável | F0-04 |
-| Sem severidade atribuída | `entrou` falso para quem muda o estado de mudo sem estado em cache | F0-03 |
-| Sem severidade atribuída | `index.ts` sem teste automatizado | F0-03 |
+| Severidade | Problema | Tratar em | Situação |
+|---|---|---|---|
+| P1 | O primeiro Ctrl+C não encerra o bot com login pendente; o mesmo acontece durante a reconexão, com Hello ou READY pendentes | F0-04 | aberto |
+| P2 | `JSON.stringify` não escapa U+2028, U+0085, U+009B e U+202E no log | F0-03 | resolvido: U+2028, U+2029, U+0085, U+009B e U+202E são escapados |
+| P3 | Allowlist malformada sobe sem aviso | F0-04 | aberto |
+| P3 | `.env` com BOM perde a primeira variável | F0-04 | aberto |
+| Sem severidade atribuída | `entrou` falso para quem muda o estado de mudo sem estado em cache | F0-03 | resolvido: agora gera `visto ... estado_anterior=desconhecido` |
+| Sem severidade atribuída | `index.ts` sem teste automatizado | F0-03 | resolvido: `index.test.ts` usa um Discord falso local; o Theo validou com 18 mutações |
+| Sem severidade atribuída | A política de reinício do container pode entrar em laço quando o bot sai com código 1 (token inválido ou erro sem reconexão) | F0-04 | aberto |
 
 **F0-06, para o usuário, antes do cadastro:**
 
@@ -87,6 +90,19 @@ Depois de F0-01, há duas linhas que podem andar em paralelo: bot (F0-02, F0-03,
 | F1-10 | Criar as tabelas de usuário, consentimento e refresh token. | Rafa | F1-04, F1-09 | Integração: `discord_id` e identidade Google opcionais e, quando presentes, únicos, e toda conta tem ao menos um dos dois; refresh guarda só hash, com família, dispositivo e expiração, conforme ADR 0003; consentimento é global, por usuário, e o aceite tem data. | a fazer | `feat(db): adiciona usuários, consentimento e refresh tokens` |
 | F1-11 | Criar a tabela de sessões. | Rafa | F1-05, F1-08, F1-10 | Integração: horários em `timestamptz`; origem distingue bot, timer e manual; sessão do bot guarda `guild_id`; o banco impede duas sessões abertas para a mesma origem e usuário; a migration preserva dados de um banco já populado. | a fazer | `feat(db): adiciona tabela de sessões` |
 
+**F1-08, o que a F0-03 ensinou (insumo, sem decisão):**
+
+- A reconciliação precisa ocorrer a cada `GUILD_CREATE`, não só ao iniciar o bot.
+- Há dois modos de queda: a conexão é retomada (`resume`) ou começa uma sessão nova (`identify`).
+- Nenhum horário registrado na queda é o horário do fato: o bot só percebe a queda e a volta depois que elas aconteceram.
+- Servidor indisponível não é saída de quem estava na call.
+- A queda do processo, sem reconexão, só é detectável com sinal periódico do bot ou com as sessões abertas no banco.
+
+Decisões que o Rafa levou ao usuário, para o ADR 0007:
+
+- Horário de fim de quem saiu durante a queda. Recomendação do Rafa: guardar o intervalo da queda e fechar a sessão no início dele.
+- Se conta o tempo de quem seguiu na call durante a queda.
+
 ### Bloco C: login e consentimento
 
 | ID | Objetivo | Resp. | Depende de | Critério de aceite | Status | Commit previsto |
@@ -107,8 +123,8 @@ Depois de F0-01, há duas linhas que podem andar em paralelo: bot (F0-02, F0-03,
 |---|---|---|---|---|---|---|
 | F1-19 | Criar o caminho de escrita de eventos de voz com credencial de serviço. | Rafa | F1-07, F1-11, F1-15 | Integração: sem credencial, 401; evento repetido não duplica; evento de quem não consentiu não grava nada. | a fazer | `feat(api): adiciona ingestão de eventos de voz` |
 | F1-20 | Persistir entrada, saída e troca de canal pelo bot, em vários servidores. | Rafa | F0-03, F1-19 | Com eventos simulados: cada caso gera o registro definido no ADR 0005, com `guild_id`, inclusive troca entre servidores com eventos em qualquer ordem; mudo e transmissão não geram gravação; quem não consentiu não gera registro. Roteiro manual no servidor de teste confirma com o banco. | a fazer | `feat(bot): persiste sessões de voz` |
-| F1-21 | Reconciliar na inicialização e fechar órfãs. | Rafa | F1-08, F1-20 | Matar o bot com alguém na call e religar produz o resultado definido no ADR 0007, sem duplicar, em todos os servidores; o sinal do bot fica em memória na VM, com gravação periódica a cada 30 min (D-19); API fora do ar não derruba o bot nem perde a reconciliação ao voltar. | a fazer | `feat(bot): reconcilia e fecha sessões órfãs` |
-| F1-41 | Permitir que a pessoa escolha em qual servidor colocar o bot. | Ambos (Lia: tela; Rafa: link e bot) | F1-17, F1-20 | A tela abre o convite do Discord, onde a pessoa escolhe o servidor, com permissões mínimas e OAuth de login ainda só com `identify`. Roteiro manual em um segundo servidor: quem consentiu é registrado com o `guild_id` certo, quem não consentiu não é; remover o bot do servidor não derruba o bot nem deixa sessão aberta daquele servidor. O relatório confirma, em fonte oficial, a partir de quantos servidores o Discord exige verificação. | a fazer | `feat(web): adiciona convite do bot` |
+| F1-21 | Reconciliar na inicialização e fechar órfãs. | Rafa | F1-08, F1-20 | Matar o bot com alguém na call e religar produz o resultado definido no ADR 0007, sem duplicar, em todos os servidores; o sinal do bot fica em memória na VM, com gravação periódica a cada 30 min (D-19); API fora do ar não derruba o bot nem perde a reconciliação ao voltar; o primeiro login, sem conexão anterior, não é tratado como queda (na F0-03 ele pode gerar `queda detectada`). | a fazer | `feat(bot): reconcilia e fecha sessões órfãs` |
+| F1-41 | Permitir que a pessoa escolha em qual servidor colocar o bot. | Ambos (Lia: tela; Rafa: link e bot) | F1-17, F1-20 | A tela abre o convite do Discord, onde a pessoa escolhe o servidor, com permissões mínimas e OAuth de login ainda só com `identify`. Roteiro manual em um segundo servidor: quem consentiu é registrado com o `guild_id` certo, quem não consentiu não é; remover o bot do servidor não derruba o bot nem deixa sessão aberta daquele servidor; remover e recolocar o bot não é tratado como queda (na F0-03 isso gera `saiu_na_queda` sem ter havido queda). O relatório confirma, em fonte oficial, a partir de quantos servidores o Discord exige verificação. | a fazer | `feat(web): adiciona convite do bot` |
 
 ### Bloco E: coleta em produção
 
@@ -212,6 +228,7 @@ Lista de testes para o usuário fazer depois, a pedido dele.
 | Teste | Atividade | Responsável | Motivo | Status |
 |---|---|---|---|---|
 | Com uma segunda conta, fora da allowlist, entrar e sair de um canal de voz e confirmar que nada aparece no terminal. | F0-02 | Usuário | No momento ele só tem um usuário | a fazer |
+| Queda de internet: com o celular em dados móveis na call e o bot rodando no PC, deixar o PC sem rede por pelo menos 3 min. Anotar o `modo` (`resume` ou `identify`), as linhas `queda detectada` e `retomada` e a hora em que saiu da call pelo celular. Repetir ficando na call. Encerrar com Ctrl+C e confirmar que não aparece linha falsa de queda. | F0-03 | Usuário | A reconexão só foi testada no Discord simulado | a fazer |
 
 ## Suposições aceitas
 
