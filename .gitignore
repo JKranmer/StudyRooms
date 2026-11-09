@@ -5,6 +5,12 @@ CLAUDE.md
 # Material de estudo da Helena
 docs/aprendizado/
 
+# Guias pessoais do usuário (cadastro de contas)
+PASSO-A-PASSO-CONTAS.md
+
+# Backups locais do banco (D-18: arquivo físico, nunca no Git)
+backups/
+
 # Dependências
 node_modules/
 
