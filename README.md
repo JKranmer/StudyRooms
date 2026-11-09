@@ -2,7 +2,7 @@
 
 > Nome provisório. Controle de hábitos de estudo com salas de estudo integradas ao Discord: registre o tempo manualmente, por um timer no site ou automaticamente em canal de voz, e acompanhe a evolução por semana, mês, trimestre, semestre e ano, além dos horários em que você mais e menos estuda.
 
-**Status:** Fase 0 em andamento (`apps/bot` loga entrada, saída e troca de canal de voz no console, sem gravar nada). Hospedagem e regras de produto decididas em 2026-11-06; o provedor final do bot segue pendente até a F0-06.
+**Status:** Fase 0 em andamento (`apps/bot` loga no console quem já está em call ao iniciar, entrada, saída, troca de canal de voz, queda e retomada da conexão, sem gravar nada). Hospedagem e regras de produto decididas em 2026-11-06; o provedor final do bot segue pendente até a F0-06.
 
 ## Problema e motivação
 
@@ -42,7 +42,7 @@ Aberta a qualquer pessoa, sem allowlist.
 | Autenticação | Google OAuth + Discord OAuth2 + JWT (access curto + refresh rotativo) | [ADR 0003](docs/adr/adr-0003-jwt.md); ADR de login (F1-45) |
 | API | Hono (sujeito à prova) + Zod (OpenAPI gerado dos schemas) em Cloudflare Workers | [ADR 0010](docs/adr/adr-0010-api-cloudflare-workers.md) |
 | Banco | PostgreSQL + Drizzle ORM; Neon via Hyperdrive | [ADR 0004](docs/adr/adr-0004-hospedagem.md) |
-| Bot | discord.js (intent `guild_voice_states`; a F0-03 confirma se `guilds` também é necessária), em container; VM Oracle Always Free como primeira opção | [ADR 0004](docs/adr/adr-0004-hospedagem.md), a confirmar pela F0-06 |
+| Bot | discord.js (intents `Guilds` e `GuildVoiceStates`, nenhuma privilegiada), em container; VM Oracle Always Free como primeira opção | [ADR 0004](docs/adr/adr-0004-hospedagem.md), a confirmar pela F0-06 |
 | Testes | Vitest, Testing Library, Playwright, Testcontainers | planejado |
 | Infra | Wrangler, Docker (bot e banco local), GitHub Actions, hospedagem gratuita | [ADR 0004](docs/adr/adr-0004-hospedagem.md) |
 
