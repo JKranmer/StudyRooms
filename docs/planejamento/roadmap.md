@@ -1,6 +1,6 @@
 # Roadmap do StudyRooms
 
-Aprovado com pendências em 2026-11-06. As pendências estão em [Em aberto](#em-aberto). Tecnologias: ver `README.md` e `docs/adr/`.
+Aprovado com pendências em 2026-11-06. Revisado em 2026-11-09 para incluir a [coleta antecipada](#trilha-de-coleta-antecipada) (D-26) e a [base de login e dashboard em paralelo](#trilha-paralela-base-de-login-e-dashboard) (D-28); no mesmo dia, os pontos a confirmar dessa revisão viraram as decisões D-29 a D-32. As pendências estão em [Em aberto](#em-aberto). Tecnologias: ver `README.md` e `docs/adr/`.
 
 Referências usadas neste plano: **D-xx** são decisões do usuário, **U-xx** são pré-requisitos do usuário e **S-xx** são suposições aceitas. Os IDs das atividades são estáveis e não seguem a ordem de execução: novas atividades recebem o próximo número, e as tabelas estão na ordem recomendada.
 
@@ -10,20 +10,20 @@ Branches: `dev` integra e `main` guarda o que está estável. Os commits são fe
 
 | Ordem | Etapa | Entrega | Por que nesta posição |
 |---|---|---|---|
-| 1 | Fase 0 | Bot logando voz em VM gratuita, Hono provado em Workers com Neon, HTTPS e cookie de refresh comprovados | Ataca os maiores riscos antes de investir em código: se bot sempre ligado de graça ou a API em 10 ms de CPU não forem viáveis, a arquitetura muda |
-| 2 | Fase 1, blocos A e B | Monorepo, CI, banco, ADRs de modelagem e schema | O schema depende de decisões que ficam caras de mudar com dados reais |
-| 3 | Fase 1, blocos C, D e E | Login, consentimento, privacidade e coleta de voz em produção, com backup | O Discord não informa tempo passado: cada dia sem coleta é dado perdido para sempre. Por isso a coleta vai ao ar antes do dashboard |
-| 4 | Fase 1, blocos F e G | Cálculos, timer, registro manual e dashboard | Como a regra é aplicada na leitura, o dashboard pode vir depois e já nasce com dados reais. O bloco F é lógica pura e pode começar em paralelo ao bloco C |
-| 5 | Fase 1, bloco H | Documentação e uso diário comprovado | Encerra a fase e libera a Fase 2 |
-| 6 | Fase 2 | Salas em tempo real | Só começa com a Fase 1 em produção |
-
-Publicar a coleta antes do dashboard é uma recomendação deste plano e pode ser revista pelo usuário.
+| 1 | Linha do bot da Fase 0 e [coleta antecipada](#trilha-de-coleta-antecipada) | Bot na Oracle, 24 h por dia, gravando eventos brutos de voz no Neon, com backup local | O Discord não informa tempo passado: cada dia sem coleta é dado perdido para sempre. Prioridade do usuário (D-26) |
+| 1, em paralelo | [Base de login e dashboard](#trilha-paralela-base-de-login-e-dashboard), local | Base da SPA (Lia), base da API (Rafa) e rascunho dos ADRs que bloqueiam o login | Não depende de conta externa (D-28). Rafa prioriza a coleta e avança aqui enquanto espera as contas |
+| 2 | Linha da API da Fase 0 e F0-08 | Hono provado em Workers com Neon, HTTPS e cookie de refresh comprovados, provedor do bot confirmado | Depende da conta na Cloudflare, criada só na F0-10 (D-27) |
+| 3 | Fase 1, blocos A e B | Monorepo, CI, banco, ADRs de modelagem e schema | O schema depende de decisões que ficam caras de mudar com dados reais |
+| 4 | Fase 1, blocos C, D e E | Login, consentimento, privacidade e coleta pela API, aberta a qualquer pessoa | Encerra a exceção da coleta antecipada (D-26) |
+| 5 | Fase 1, blocos F e G | Cálculos, timer, registro manual e dashboard | Como a regra é aplicada na leitura, o dashboard já nasce com os dados da coleta antecipada. O bloco F é lógica pura e pode começar em paralelo ao bloco C |
+| 6 | Fase 1, bloco H | Documentação e uso diário comprovado | Encerra a fase e libera a Fase 2 |
+| 7 | Fase 2 | Salas em tempo real | Só começa com a Fase 1 em produção |
 
 ## Fase 0: spike do bot e deploy de prova
 
 Saída da fase: F0-08 concluída, com a ressalva do provedor do bot encerrada no ADR 0004 e o Hono aprovado na prova do ADR 0010. O Neon já está decidido (D-23), mas F0-11 ainda precisa provar que ele suspende com o Hyperdrive conectado.
 
-Depois de F0-01, há duas linhas que podem andar em paralelo: bot (F0-02, F0-03, F0-04, F0-06) e API (F0-10, F0-11, F0-07). A observação de F0-06 corre sozinha enquanto a linha da API avança.
+Depois de F0-01, há duas linhas que podem andar em paralelo: bot (F0-02, F0-03, F0-04, F0-12, F0-06) e API (F0-10, F0-11, F0-07). A linha do bot agora leva à [coleta antecipada](#trilha-de-coleta-antecipada) e vem primeiro. A linha da API espera a conta na Cloudflare (D-27). A observação de F0-06 corre sozinha, já com a coleta ligada, enquanto a linha da API avança.
 
 | ID | Objetivo | Resp. | Depende de | Critério de aceite | Status | Commit previsto |
 |---|---|---|---|---|---|---|
@@ -32,9 +32,10 @@ Depois de F0-01, há duas linhas que podem andar em paralelo: bot (F0-02, F0-03,
 | F0-05 | Confirmar o que o levantamento do ADR 0004 deixou em aberto. | Rafa | nenhuma | ADR 0004 responde, com link oficial e data, se Oracle e Cloudflare exigem cartão e se a exigência fere o critério 3; o que seguir sem resposta fica marcado como não confirmado. | concluída, com ressalva ([notas](#notas-da-fase-0)) | `docs(adr): registra verificação dos planos gratuitos` |
 | F0-02 | Logar no console entrada, saída e troca de canal de voz. | Rafa | F0-01, U-01, U-02, U-06 | Roteiro manual: entrar, trocar e sair geram 3 linhas com tipo, canal e horário UTC; mutar ou transmitir não gera linha; conta fora da allowlist de teste não aparece no log; o código não usa intent privilegiada nem lê mensagens. A allowlist existe só no spike, por privacidade. | concluída ([notas](#notas-da-fase-0)) | `feat(bot): loga eventos de voz no console` |
 | F0-03 | Provar que o bot enxerga quem já está na call ao iniciar e que sobrevive a reconexões. | Rafa | F0-02 | Iniciar com a conta de teste na call gera log do estado atual; após queda de rede simulada, o bot reconecta sozinho e volta a logar eventos; o relatório diz, com teste, se a intent `guilds` é necessária além de `guild_voice_states`. O resultado alimenta o ADR 0007. Trata também os problemas conhecidos atribuídos a ela nas [notas](#notas-da-fase-0). | concluída ([notas](#notas-da-fase-0)) | `feat(bot): loga estado de voz na inicialização e reconexões` |
-| F0-04 | Empacotar o bot em Docker. | Rafa | F0-02, U-05 | `docker compose up bot` repete o roteiro de F0-02; o token não aparece em `docker history` nem em `docker inspect` da imagem; Ctrl+C (ou `docker compose stop`) encerra o bot também com login ou reconexão pendente; com o bot saindo com código 1, a política de reinício não entra em laço. Trata também os problemas conhecidos atribuídos a ela nas [notas](#notas-da-fase-0). | a fazer | `build(bot): adiciona Dockerfile e compose do bot` |
-| F0-06 | Colocar o bot na VM candidata e medir a estabilidade. | Rafa | F0-04, F0-05, U-03 | Imagem roda na arquitetura escolhida; bot online por 72 h seguidas, sem intervenção; roteiro de F0-02 funciona no ambiente hospedado; após reiniciar a máquina, o bot volta sozinho; custo apurado no painel é zero; existe runbook de subida. Além das 72 h, 7 dias de observação; na Oracle, CPU, rede e memória comparadas aos limites de reclaim do ADR 0004. Antes do cadastro, o usuário lê as [notas](#notas-da-fase-0). | a fazer | `docs(infra): adiciona runbook do deploy de prova` |
-| F0-10 | Provar uma rota real do Hono em Workers dentro do limite de CPU. | Rafa | F0-01, F0-05, U-03 | Em ambiente publicado, uma rota valida a entrada com Zod, verifica um JWT e consulta o Neon com Drizzle via Hyperdrive; 100 chamadas, incluindo a primeira após um novo deploy, terminam sem erro de limite de CPU; o OpenAPI é gerado dos schemas sem custo relevante por requisição; o ADR 0010 registra as medições e se a espera por I/O conta no limite. Se o Hyperdrive exigir plano pago, a decisão volta ao usuário ([notas](#notas-da-fase-0)). | a fazer | `feat(api): adiciona prova do Hono em Workers` |
+| F0-04 | Empacotar o bot em Docker. | Rafa | F0-02, U-05 | `docker compose up bot` repete o roteiro de F0-02; o token não aparece em `docker history` nem em `docker inspect` da imagem; Ctrl+C (ou `docker compose stop`) encerra o bot também com login ou reconexão pendente; com o bot saindo com código 1, a política de reinício não entra em laço. Trata também os problemas conhecidos atribuídos a ela nas [notas](#notas-da-fase-0). | aguardando roteiro manual do usuário ([notas](#notas-da-fase-0)) | `build(bot): adiciona Dockerfile e compose do bot` |
+| F0-12 | Fazer o bot voltar sozinho na VM sem entrar em laço. | Rafa | F0-04 | Verificável localmente com Docker: erro de rede no login faz o bot tentar de novo dentro do processo, com espera crescente e teto, sem sair; erro de configuração (token inválido, allowlist inválida) sai com um código próprio (proposta do Rafa: 78) e não é reiniciado; depois de reiniciar o Docker Engine, simulando o reboot da VM, o bot volta sozinho; `docker compose stop` deixa o bot parado. O Docker não filtra código de saída na política de reinício, então a forma (systemd com exceção para o código, ou outra) é escolha técnica do Rafa e fica no runbook de F0-06. Ver a [pendência](#notas-da-fase-0). | a fazer | `fix(bot): ajusta reinício para rodar na VM` |
+| F0-06 | Colocar o bot na Oracle e medir a estabilidade. | Rafa | F0-04, F0-05, F0-12, U-03 (Oracle) | Imagem roda na arquitetura escolhida; bot online por 72 h seguidas, sem intervenção; roteiro de F0-02 funciona no ambiente hospedado; após reiniciar a máquina, o bot volta sozinho, com o comportamento de F0-12; custo apurado no painel é zero; existe runbook de subida. Além das 72 h, 7 dias de observação; na Oracle, CPU, rede e memória comparadas aos limites de reclaim do ADR 0004. Pode subir antes da gravação no banco: a coleta é ligada em F1-49, sem esperar o fim da observação. Antes do cadastro, o usuário lê as [notas](#notas-da-fase-0). | a fazer | `docs(infra): adiciona runbook do deploy de prova` |
+| F0-10 | Provar uma rota real do Hono em Workers dentro do limite de CPU. | Rafa | F0-01, F0-05, U-03 (Cloudflare e Neon) | Em ambiente publicado, uma rota valida a entrada com Zod, verifica um JWT e consulta o Neon com Drizzle via Hyperdrive; 100 chamadas, incluindo a primeira após um novo deploy, terminam sem erro de limite de CPU; o OpenAPI é gerado dos schemas sem custo relevante por requisição; o ADR 0010 registra as medições e se a espera por I/O conta no limite. Se o Hyperdrive exigir plano pago, a decisão volta ao usuário ([notas](#notas-da-fase-0)). | a fazer | `feat(api): adiciona prova do Hono em Workers` |
 | F0-11 | Provar a saída para Node e a suspensão do Neon com o Hyperdrive conectado. | Rafa | F0-10 | O mesmo código de rotas responde igual em Node; com o Hyperdrive conectado e sem requisições, o painel do Neon mostra a suspensão em até 15 min, e a chamada seguinte responde sem erro. Se o Neon não suspender, a falha vai ao usuário antes de F0-08, pois as 400 h deixam de bastar. | a fazer | `test(api): prova execução em Node e suspensão do Neon` |
 | F0-07 | Provar HTTPS, fallback da SPA e cookie de refresh com SPA e API no mesmo Worker. | Ambos (Lia: página; Rafa: endpoint) | F0-10 | Playwright em Chromium, Firefox e WebKit, em `workers.dev`: a página publicada chama a API por HTTPS e recebe cookie `httpOnly` e `Secure` com `SameSite`; após recarregar, o cookie é reenviado à rota de teste; recarregar uma rota interna da SPA entrega a aplicação; rotas da API não caem no fallback. Se falhar, a topologia volta ao usuário (D-02). | a fazer | `chore(infra): adiciona prova de HTTPS e cookie` |
 | F0-08 | Confirmar o provedor do bot e encerrar a ressalva do ADR 0004. | Rafa | F0-03, F0-06, F0-07, F0-10, F0-11, D-20 | ADR 0004 encerra a ressalva, com o provedor do bot confirmado pelo usuário, os resultados medidos e as pendências da Fase 0 fechadas; ADR 0010 diz se o Hono foi aprovado; README atualizado com o resultado. | a fazer | `docs(adr): confirma provedor do bot no ADR 0004` |
@@ -47,45 +48,107 @@ Depois de F0-01, há duas linhas que podem andar em paralelo: bot (F0-02, F0-03,
 
 **F0-03, concluída.** O usuário validou no Discord real o estado inicial: entrar na call antes de ligar o bot gera `já estava`, e ele relatou que funcionou. A reconexão foi coberta no Discord simulado do Theo; a queda de internet real segue em [Testes pendentes do usuário](#testes-pendentes-do-usuário). Pode aparecer `queda detectada` no primeiro login, sem conexão anterior; não afeta o spike e deve ser evitado na reconciliação de F1-21.
 
+**F0-04, aguardando roteiro manual do usuário.** O Theo aprovou tudo que dava para testar sem voz real: token fora da imagem, encerramento com login ou reconexão pendentes e reinício limitado. Falta o usuário repetir o roteiro de F0-02 com `docker compose up bot` no Discord real ([Testes pendentes do usuário](#testes-pendentes-do-usuário)); com isso, a F0-04 fica concluída.
+
 **Intent `Guilds`, fechada na F0-03.** São necessárias `Guilds` e `GuildVoiceStates`. Sem `Guilds`, o Discord não envia `GUILD_CREATE` e os canais não entram no cache (medido pelo Rafa).
 
 **Problemas conhecidos, levantados pelo Theo para o Rafa:**
 
 | Severidade | Problema | Tratar em | Situação |
 |---|---|---|---|
-| P1 | O primeiro Ctrl+C não encerra o bot com login pendente; o mesmo acontece durante a reconexão, com Hello ou READY pendentes | F0-04 | aberto |
+| P1 | O primeiro Ctrl+C não encerra o bot com login pendente; o mesmo acontece durante a reconexão, com Hello ou READY pendentes | F0-04 | resolvido na F0-04, validado pelo Theo: `shutdown.ts` encerra em até 3 s |
 | P2 | `JSON.stringify` não escapa U+2028, U+0085, U+009B e U+202E no log | F0-03 | resolvido: U+2028, U+2029, U+0085, U+009B e U+202E são escapados |
-| P3 | Allowlist malformada sobe sem aviso | F0-04 | aberto |
-| P3 | `.env` com BOM perde a primeira variável | F0-04 | aberto |
+| P3 | Allowlist malformada sobe sem aviso | F0-04 | resolvido na F0-04, validado pelo Theo: allowlist inválida recusa subir |
+| P3 | `.env` com BOM perde a primeira variável | F0-04 | resolvido na F0-04, validado pelo Theo: o BOM é removido e a variável, recuperada |
 | Sem severidade atribuída | `entrou` falso para quem muda o estado de mudo sem estado em cache | F0-03 | resolvido: agora gera `visto ... estado_anterior=desconhecido` |
 | Sem severidade atribuída | `index.ts` sem teste automatizado | F0-03 | resolvido: `index.test.ts` usa um Discord falso local; o Theo validou com 18 mutações |
-| Sem severidade atribuída | A política de reinício do container pode entrar em laço quando o bot sai com código 1 (token inválido ou erro sem reconexão) | F0-04 | aberto |
+| Sem severidade atribuída | A política de reinício do container pode entrar em laço quando o bot sai com código 1 (token inválido ou erro sem reconexão) | F0-04 | resolvido na F0-04, validado pelo Theo: `restart: on-failure:5` |
+
+**Pendência levantada pelo Rafa para a VM, tratada em F0-12 (decisão técnica, antes de F0-06):** `on-failure:5` não zera a contagem de tentativas, e, depois de um reboot da VM, o bot provavelmente não volta, pois sai com código 0 no SIGTERM. Recomendação do Rafa: tentar de novo o login com espera crescente, dentro do processo, quando o erro for de rede; e usar `unless-stopped` ou systemd, sem reiniciar quando o código indicar erro de configuração (por exemplo, 78).
 
 **F0-06, para o usuário, antes do cadastro:**
 
 - A região da Oracle é permanente: decidir antes de se cadastrar.
 - Se o Hyperdrive exigir plano pago, a F0-10 devolve a decisão ao usuário, avaliando antes o driver serverless do Neon.
 
+## Trilha de coleta antecipada
+
+Decisão do usuário em 2026-11-09 (D-26): até a API existir, o bot grava direto no Neon, numa tabela só de eventos brutos. É uma exceção temporária à D-03, que continua valendo: quando a API existir, o bot passa a gravar por ela (F1-20), e os eventos já gravados seguem como dado bruto preservado. Continua valendo que o bot só registra quem consentiu (ver [consentimento na coleta antecipada](#consentimento-na-coleta-antecipada)).
+
+Ordem recomendada. As atividades da Fase 0 (F0-12 e F0-06) estão na tabela da Fase 0; as demais, abaixo. F1-04 e F1-24 saíram dos blocos A e E e foram ajustadas para esta trilha.
+
+1. F0-12 e F1-47: locais, começam já (Rafa). F1-04 e F1-46 estão concluídas.
+2. F1-48, quando o Neon existir (U-03).
+3. F0-06, quando a Oracle existir (U-03). Pode correr em paralelo com F1-47 e F1-48.
+4. F1-49: liga a coleta na VM. A partir daqui, os dados reais começam a ser gravados.
+5. F1-24: backup local, logo depois de F1-49.
+
+| ID | Objetivo | Resp. | Depende de | Critério de aceite | Status | Commit previsto |
+|---|---|---|---|---|---|---|
+| F1-04 | Subir Postgres no compose e criar `packages/db` com Drizzle. | Rafa | F0-01, U-05 | `docker compose up db` fica saudável; migrate em banco vazio funciona e a segunda execução não altera nada; um teste com Testcontainers conecta ao banco no Docker atual. Se o Testcontainers não funcionar com esse Docker, Rafa relata antes de seguir. Não espera o Turborepo: `packages/db` entra no workspace pnpm e é integrado ao Turborepo em F1-01. | concluída | `feat(db): adiciona Postgres e Drizzle` |
+| F1-46 | Criar a tabela de eventos brutos de voz e a migration. | Rafa | F1-04 | Integração com Testcontainers: a tabela guarda tipo do evento, ID do usuário no Discord, `guild_id`, canal de origem e de destino quando houver, horário do fato em `timestamptz` (UTC) e horário da gravação; os tipos são entrada, saída e troca, mais `voice_present` e os marcos do bot (D-30); não existe coluna de mudo, transmissão nem mensagem; cada evento tem uma chave de idempotência única, e gravar o mesmo evento duas vezes deixa uma linha só; a migration roda em banco vazio e a segunda execução não altera nada. | concluída | `feat(db): adiciona tabela de eventos brutos de voz` |
+| F1-47 | Gravar os eventos de voz no banco sem perder evento quando o banco cair. | Rafa | F1-46, F0-12 | Testes com eventos simulados e Postgres local: só quem está na [lista de consentimento](#consentimento-na-coleta-antecipada) é gravado, e quem não está não aparece no banco nem no log; mudo e transmissão não geram gravação; com o banco parado por 10 min e eventos nesse intervalo, o bot não cai, guarda os eventos numa fila em disco (volume do container, que hoje é `read_only`) e grava todos, na ordem e sem duplicar, quando o banco volta; matar o bot com a fila cheia e religar não perde nem duplica eventos; fora os eventos, o único acesso ao banco é o sinal a cada 30 min (D-19), e o bot registra no log quantas vezes acessou o banco, para estimar as horas do Neon; o encerramento continua dentro do prazo de 3 s da F0-04. | a fazer | `feat(bot): grava eventos brutos de voz no banco` |
+| F1-48 | Preparar o Neon para a coleta. | Rafa (o usuário cria a conta e entrega a conexão) | F1-46, U-03 (Neon) | A migration é aplicada no Neon por conexão direta, a partir da máquina local; o bot usa um papel que só insere na tabela de eventos brutos (e no que a idempotência e o sinal exigirem): com a credencial dele, `DELETE`, `DROP` e leitura de outras tabelas falham; o backup usa outro papel, só de leitura; as conexões ficam só no `.env` local e no da VM, e o `.env.example` documenta as variáveis sem valores; o runbook explica como apagar os eventos de uma pessoa que deixe de consentir. | a fazer | `docs(infra): documenta o Neon da coleta antecipada` |
+| F1-49 | Ligar a coleta na VM. | Rafa, com roteiro do usuário | F0-06 (bot no ar, sem esperar as 72 h), F1-47, F1-48 | Roteiro manual do usuário no Discord real: entrar, trocar e sair geram as linhas correspondentes no Neon, em UTC; depois de reiniciar a VM, o bot volta e segue gravando; com a conexão do banco cortada na VM por alguns minutos, os eventos do intervalo aparecem no Neon quando ela volta; o consumo de horas do Neon nas primeiras 24 h fica anotado e projetado para o mês; a data de início da coleta fica registrada neste roadmap. O teste com uma segunda conta fora da lista entra em [Testes pendentes do usuário](#testes-pendentes-do-usuário). | a fazer | `docs(infra): registra início da coleta antecipada` |
+| F1-24 | Fazer backup local do Neon e testar a restauração. | Rafa (script); o usuário executa | F1-48 | Um comando documentado gera, com o papel só de leitura, um dump do Neon em `backups/`, com a data UTC no nome do arquivo; `git status` não mostra o arquivo; restaurar o dump no Postgres local do compose devolve as mesmas contagens por tabela; o mesmo comando apaga dumps com mais de 30 dias (D-10); horas e saída do Neon gastas por dump ficam medidas. Roda no PC do usuário, diariamente, quando ele estiver ligado (D-31). A forma definitiva será revista depois que tudo estiver no ar e funcionando (D-18). | a fazer | `chore(infra): adiciona backup local e restauração` |
+
+### Consentimento na coleta antecipada
+
+O consentimento real (F1-18) ainda não existe; hoje só há a allowlist de teste do spike. Decidido pelo usuário em 2026-11-09 (D-29):
+
+- A allowlist de teste vira a **lista de consentimento explícito** da coleta antecipada, com a mesma validação (lista inválida impede o bot de subir). Ela tem só o ID do próprio usuário, nas palavras dele: "apenas eu estarei na lista".
+- Se um dia outra pessoa entrar, será por nova decisão do usuário e com consentimento explícito dela, anotado com data num registro local, fora do Git.
+- Quem não está na lista não é gravado nem aparece no log, como já acontece no spike.
+- Revogar é tirar o ID da lista e reiniciar o bot; quem pedir exclusão tem os eventos apagados pelo procedimento do runbook de F1-48.
+- Em F1-26, a lista é substituída pelo consentimento real e removida. Os eventos do período antecipado ficam ligados à conta pelo ID do Discord, conforme ADR 0005.
+
+### Custo do Neon na coleta antecipada
+
+Sem sinal frequente: o sinal do bot fica em memória e só é gravado a cada 30 min (D-19). Estimativa da Nina, não medida: se cada gravação acorda o Neon e ele só suspende depois de 5 min parado, o sinal sozinho mantém o banco acordado cerca de 4 h por dia, perto de 120 h por mês, ou 30% das 400 h. F1-47 e F1-49 medem o valor real. Se confirmado, rever D-19 é decisão do usuário.
+
+## Trilha paralela: base de login e dashboard
+
+Decisão do usuário em 2026-11-09 (D-28): Lia na base da SPA e Rafa na base da API, localmente, sem contas externas. A coleta antecipada tem prioridade para o Rafa; ele avança aqui enquanto espera as contas.
+
+O que pode começar já:
+
+| Atividade | Resp. | Ajuste feito para começar já |
+|---|---|---|
+| F1-16, base da SPA | Lia | Depende só de F0-01; a integração ao Turborepo fica para F1-01, e o modo de servir os estáticos é conferido em F0-07 e F1-22 |
+| F1-02, `packages/shared` com Vitest | Rafa | Depende só de F0-01, pelo mesmo motivo |
+| F1-12, base da API com Hono e Wrangler local | Rafa | Depende de F1-02, não mais de F1-09: os schemas de health e de erro ficam em `packages/shared`. `wrangler dev` roda local, sem conta na Cloudflare |
+| Rascunho dos ADRs 0005, 0006, 0011 e de login (F1-05, F1-06, F1-07, F1-45) | Rafa | Não dependem mais de F0-08. Eles bloqueiam os contratos (F1-09) e, por consequência, as tabelas de usuário e o login |
+| F1-01, Turborepo e `packages/config` | Rafa | Depende de F0-04, não mais de F0-08, para integrar cedo os pacotes novos |
+
+Atividade nova, aprovada pelo usuário em 2026-11-09 (D-32):
+
+| ID | Objetivo | Resp. | Depende de | Critério de aceite | Status | Commit previsto |
+|---|---|---|---|---|---|---|
+| F1-50 | Prototipar o dashboard com dados simulados, sem API. | Lia | F1-16 | Em `apps/web`, sem nenhuma chamada a API: o dashboard mostra totais por período, streak e mapa de calor a partir de dados falsos fixos no código; toda tela com dado falso tem aviso visível de que os dados são simulados; os dados falsos ficam num módulo separado, fácil de remover; a rota segue protegida pelo login simulado da F1-16; lint, typecheck e testes passam. Não define contrato: os dados reais entram em F1-35 e F1-36, pelos schemas de F1-09. | a fazer | `feat(web): adiciona protótipo do dashboard com dados simulados` |
+
+Risco aceito: a base da API usa Hono antes da prova de F0-10. Se o Hono reprovar no limite de CPU, a base é refeita. O OAuth real só depende das credenciais de U-07, e o login segue simulado nos testes.
+
 ## Fase 1: tracker
 
 ### Bloco A: fundação
 
+F1-04 foi para a [trilha de coleta antecipada](#trilha-de-coleta-antecipada). F1-01 e F1-02 podem começar já ([trilha paralela](#trilha-paralela-base-de-login-e-dashboard)).
+
 | ID | Objetivo | Resp. | Depende de | Critério de aceite | Status | Commit previsto |
 |---|---|---|---|---|---|---|
-| F1-01 | Completar o monorepo com Turborepo e `packages/config`. | Rafa | F0-08 | Em clone limpo, lint, typecheck e test via Turborepo passam; a segunda execução usa cache; a estrutura segue o ADR 0001, com a API do ADR 0010; o que passa no typecheck e quebra ao rodar (import `./dep.js`, decorators, `accessor`, `require` e `__dirname`) é tratado por lint ou por smoke test com `start`; a compatibilidade de `typescript-eslint` com TypeScript 7 fica verificada. | a fazer | `chore(repo): configura Turborepo e packages/config` |
-| F1-02 | Criar `packages/shared` com Vitest. | Rafa | F1-01 | Um teste de exemplo passa pelo Turborepo; o pacote é importável por `apps/bot`; não há dependência de I/O. | a fazer | `chore(shared): cria pacote com Vitest` |
-| F1-03 | Rodar lint, typecheck e testes no GitHub Actions. | Rafa | F1-02 | Um push em `dev` com erro de lint proposital fica vermelho e, sem o erro, verde, com o resultado visível no GitHub; mudança só em `apps/web` não executa tarefas de `apps/bot`. | a fazer | `ci(github): adiciona lint, typecheck e testes` |
-| F1-04 | Subir Postgres no compose e criar `packages/db` com Drizzle. | Rafa | F1-01, U-05 | `docker compose up db` fica saudável; migrate em banco vazio funciona e a segunda execução não altera nada; um teste com Testcontainers conecta ao banco no Docker atual. Se o Testcontainers não funcionar com esse Docker, Rafa relata antes de seguir. | a fazer | `feat(db): adiciona Postgres e Drizzle` |
+| F1-01 | Completar o monorepo com Turborepo e `packages/config`. | Rafa | F0-04 | Em clone limpo, lint, typecheck e test via Turborepo passam, incluindo os pacotes criados antes dele (`packages/db`, `packages/shared`, `apps/api`, `apps/web`); a segunda execução usa cache; a estrutura segue o ADR 0001, com a API do ADR 0010; o que passa no typecheck e quebra ao rodar (import `./dep.js`, decorators, `accessor`, `require` e `__dirname`) é tratado por lint ou por smoke test com `start`; a compatibilidade de `typescript-eslint` com TypeScript 7 fica verificada. | a fazer | `chore(repo): configura Turborepo e packages/config` |
+| F1-02 | Criar `packages/shared` com Vitest. | Rafa | F0-01 | Um teste de exemplo passa (pelo Turborepo, depois de F1-01); o pacote é importável por `apps/bot`; não há dependência de I/O. | a fazer | `chore(shared): cria pacote com Vitest` |
+| F1-03 | Rodar lint, typecheck e testes no GitHub Actions. | Rafa | F1-01, F1-02 | Um push em `dev` com erro de lint proposital fica vermelho e, sem o erro, verde, com o resultado visível no GitHub; mudança só em `apps/web` não executa tarefas de `apps/bot`. | a fazer | `ci(github): adiciona lint, typecheck e testes` |
 
 ### Bloco B: decisões e modelo
 
 | ID | Objetivo | Resp. | Depende de | Critério de aceite | Status | Commit previsto |
 |---|---|---|---|---|---|---|
-| F1-05 | Decidir o ADR 0005, de modelo de sessões. | Rafa | F0-03, F0-08 | ADR aceito pelo usuário cobre as três origens (manual, timer, bot), com início e fim obrigatórios no manual; grava do bot só presença e duração, com `guild_id`, sem mudo nem transmissão; define como o canal AFK é identificado e excluído, como a troca de canal é representada e o que é regra de leitura. | a fazer | `docs(adr): aceita ADR 0005 de modelo de sessões` |
-| F1-06 | Decidir o ADR 0006, de fuso horário. | Rafa | F0-08 | ADR aceito pelo usuário define origem e mudança do fuso, efeito da mudança no histórico, casos de horário de verão e períodos de calendário com semana de domingo a sábado. | a fazer | `docs(adr): aceita ADR 0006 de fuso horário` |
-| F1-07 | Registrar como o bot grava sessões. | Rafa | F0-08 | ADR 0011 aceito pelo usuário define a escrita pela API e a credencial de serviço, resolvendo o item 6 do ADR 0003, e estima o consumo do limite diário de requisições. | a fazer | `docs(adr): aceita ADR 0011 de escrita do bot` |
-| F1-08 | Decidir o ADR 0007, de sessões órfãs. | Rafa | F0-03, F1-05, F1-07 | ADR aceito pelo usuário define o sinal do bot, a regra de fechamento, o horário atribuído ao fim da sessão, o tempo da queda e o caso de quem segue na call; o sinal do bot fica em memória na VM, com gravação periódica a cada 30 min (D-19); o ADR também define onde fica o último sinal do timer (D-14), sem tocar o banco a cada envio, e estima as horas de Neon consumidas. | a fazer | `docs(adr): aceita ADR 0007 de sessões órfãs` |
-| F1-45 | Decidir o ADR de login por Google e Discord. | Rafa | F0-08 | ADR aceito pelo usuário define o login por Google e Discord, sem e-mail e senha; como a conta Google vincula o Discord depois e o que acontece se esse Discord já tiver conta; os escopos pedidos; como isso convive com o ADR 0003; e o custo de CPU no limite de 10 ms. | a fazer | `docs(adr): aceita ADR de login por Google e Discord` |
+| F1-05 | Decidir o ADR 0005, de modelo de sessões. | Rafa | F0-03, F1-46 | ADR aceito pelo usuário cobre as três origens (manual, timer, bot), com início e fim obrigatórios no manual; grava do bot só presença e duração, com `guild_id`, sem mudo nem transmissão; define como o canal AFK é identificado e excluído, como a troca de canal é representada e o que é regra de leitura; define como os eventos brutos da coleta antecipada (F1-46) viram sessões, sem apagá-los. | a fazer | `docs(adr): aceita ADR 0005 de modelo de sessões` |
+| F1-06 | Decidir o ADR 0006, de fuso horário. | Rafa | nenhuma | ADR aceito pelo usuário define origem e mudança do fuso, efeito da mudança no histórico, casos de horário de verão e períodos de calendário com semana de domingo a sábado. | a fazer | `docs(adr): aceita ADR 0006 de fuso horário` |
+| F1-07 | Registrar como o bot grava sessões. | Rafa | F1-46 | ADR 0011 aceito pelo usuário define a escrita pela API e a credencial de serviço, resolvendo o item 6 do ADR 0003, e estima o consumo do limite diário de requisições; registra a exceção temporária da coleta antecipada (D-26) e como ela termina em F1-20, com a fila em disco de F1-47 reaproveitada ou não. | a fazer | `docs(adr): aceita ADR 0011 de escrita do bot` |
+| F1-08 | Decidir o ADR 0007, de sessões órfãs. | Rafa | F0-03, F1-05, F1-07 | ADR aceito pelo usuário define o sinal do bot, a regra de fechamento, o horário atribuído ao fim da sessão, o tempo da queda e o caso de quem segue na call; o sinal do bot fica em memória na VM, com gravação periódica a cada 30 min (D-19); o ADR também define onde fica o último sinal do timer (D-14), sem tocar o banco a cada envio, e estima as horas de Neon consumidas; trata também os eventos da coleta antecipada, inclusive os intervalos em que o bot ficou fora. | a fazer | `docs(adr): aceita ADR 0007 de sessões órfãs` |
+| F1-45 | Decidir o ADR de login por Google e Discord. | Rafa | nenhuma | ADR aceito pelo usuário define o login por Google e Discord, sem e-mail e senha; como a conta Google vincula o Discord depois e o que acontece se esse Discord já tiver conta; os escopos pedidos; como isso convive com o ADR 0003; e o custo de CPU no limite de 10 ms. | a fazer | `docs(adr): aceita ADR de login por Google e Discord` |
 | F1-09 | Definir os contratos Zod de usuário, consentimento, sessão e evento de voz. | Ambos (combinam; Rafa aplica) | F1-02, F1-05, F1-06, F1-45 | Testes aceitam exemplos válidos das três origens e de conta sem Discord, e rejeitam fuso inexistente, horário sem UTC, fim anterior ao início e registro manual sem início ou fim; Lia confirma que o contrato atende às telas. | a fazer | `feat(shared): adiciona contratos de usuário e sessão` |
 | F1-10 | Criar as tabelas de usuário, consentimento e refresh token. | Rafa | F1-04, F1-09 | Integração: `discord_id` e identidade Google opcionais e, quando presentes, únicos, e toda conta tem ao menos um dos dois; refresh guarda só hash, com família, dispositivo e expiração, conforme ADR 0003; consentimento é global, por usuário, e o aceite tem data. | a fazer | `feat(db): adiciona usuários, consentimento e refresh tokens` |
 | F1-11 | Criar a tabela de sessões. | Rafa | F1-05, F1-08, F1-10 | Integração: horários em `timestamptz`; origem distingue bot, timer e manual; sessão do bot guarda `guild_id`; o banco impede duas sessões abertas para a mesma origem e usuário; a migration preserva dados de um banco já populado. | a fazer | `feat(db): adiciona tabela de sessões` |
@@ -107,12 +170,12 @@ Decisões que o Rafa levou ao usuário, para o ADR 0007:
 
 | ID | Objetivo | Resp. | Depende de | Critério de aceite | Status | Commit previsto |
 |---|---|---|---|---|---|---|
-| F1-12 | Criar a base da API em Hono com health check, OpenAPI e erros padronizados. | Rafa | F1-09 | Com Wrangler, `/health` responde 200; o OpenAPI vem dos schemas Zod; entrada inválida retorna 400 sem detalhes internos; o que é específico de Workers fica isolado na entrada da aplicação. | a fazer | `feat(api): cria base Hono com OpenAPI` |
+| F1-12 | Criar a base da API em Hono com health check, OpenAPI e erros padronizados. | Rafa | F1-02 | Com `wrangler dev` local, sem conta na Cloudflare, `/health` responde 200; o OpenAPI vem dos schemas Zod de `packages/shared`; entrada inválida retorna 400 sem detalhes internos; o que é específico de Workers fica isolado na entrada da aplicação. | a fazer | `feat(api): cria base Hono com OpenAPI` |
 | F1-13 | Implementar o login OAuth2 com Discord. | Rafa | F1-10, F1-12, U-07 | Com Discord simulado: `state` inválido é rejeitado, só o escopo `identify` é pedido, nenhum token do Discord chega ao cliente e qualquer conta pode entrar, sem allowlist. Login real feito uma vez pelo usuário. | a fazer | `feat(api): adiciona login com Discord` |
 | F1-14 | Implementar access token e refresh rotativo. | Rafa | F1-13 | Testes do ADR 0003 passam: rotação e rejeição do token antigo, reuso revoga a família, expiração do access e CSRF na rota de refresh. | a fazer | `feat(api): adiciona JWT e refresh rotativo` |
 | F1-40 | Verificar a API no runtime real de Workers, pois Testcontainers roda em Node. | Rafa | F1-14 | Verificação no runtime de Workers ou em Worker publicado cobre `/health`, uma rota autenticada com consulta via Hyperdrive e o refresh, sem erro de limite de CPU, e pode ser repetida por comando; o relatório diz se a conexão local do Wrangler com Postgres funciona. | a fazer | `test(api): adiciona verificação no runtime de Workers` |
 | F1-15 | Expor perfil, fuso e consentimento. | Rafa | F1-14 | Integração: fuso inválido retorna 400; sem token, 401; um usuário não lê nem altera dados de outro; aceitar duas vezes não duplica registro. | a fazer | `feat(api): adiciona perfil e consentimento` |
-| F1-16 | Criar a base da SPA com rotas, TanStack Query, Tailwind e shadcn/ui. | Lia | F1-01 | Build gera estáticos servidos conforme a topologia provada em F0-07; rota protegida redireciona ao login; rota inexistente mostra página de erro; lint, typecheck e testes passam. | a fazer | `feat(web): cria base da SPA` |
+| F1-16 | Criar a base da SPA com rotas, TanStack Query, Tailwind e shadcn/ui. | Lia | F0-01 | Build gera os estáticos (servi-los conforme a topologia fica para F0-07 e F1-22); rota protegida, com o login ainda simulado, redireciona ao login; rota inexistente mostra página de erro; lint, typecheck e testes passam. | concluída | `feat(web): cria base da SPA` |
 | F1-17 | Implementar login, renovação e logout no navegador. | Lia | F1-14, F1-16 | Playwright com Discord simulado: nada de token em `localStorage` ou `sessionStorage`; recarregar mantém o login; 401 renova sem o usuário perceber; logout encerra a sessão. | a fazer | `feat(web): adiciona fluxo de autenticação` |
 | F1-18 | Implementar o onboarding com consentimento e fuso. | Lia | F1-15, F1-17 | Playwright: sem aceite, o bot não registra e a pessoa segue usando timer e registro manual; fuso do navegador vem sugerido e pode ser alterado; o texto informa que só presença e duração em call são registradas, sem mudo, transmissão ou mensagens, e avisa que o consentimento vale para qualquer servidor que tenha o bot (D-24); fluxo funciona só com teclado. | a fazer | `feat(web): adiciona onboarding de consentimento` |
 | F1-44 | Implementar o login com Google e o vínculo posterior do Discord. | Ambos (Rafa: API; Lia: tela) | F1-14, F1-17, F1-45, U-07 | Com provedores simulados: `state` inválido é rejeitado e nenhum token do Google chega ao cliente; conta Google entra e usa timer e registro manual; o bot não registra nada dela até vincular o Discord e consentir; vincular um Discord que já tem conta segue o ADR de F1-45; não existe formulário de e-mail e senha. Login real feito uma vez pelo usuário. | a fazer | `feat(api): adiciona login com Google` e `feat(web): adiciona login com Google` |
@@ -122,20 +185,21 @@ Decisões que o Rafa levou ao usuário, para o ADR 0007:
 | ID | Objetivo | Resp. | Depende de | Critério de aceite | Status | Commit previsto |
 |---|---|---|---|---|---|---|
 | F1-19 | Criar o caminho de escrita de eventos de voz com credencial de serviço. | Rafa | F1-07, F1-11, F1-15 | Integração: sem credencial, 401; evento repetido não duplica; evento de quem não consentiu não grava nada. | a fazer | `feat(api): adiciona ingestão de eventos de voz` |
-| F1-20 | Persistir entrada, saída e troca de canal pelo bot, em vários servidores. | Rafa | F0-03, F1-19 | Com eventos simulados: cada caso gera o registro definido no ADR 0005, com `guild_id`, inclusive troca entre servidores com eventos em qualquer ordem; mudo e transmissão não geram gravação; quem não consentiu não gera registro. Roteiro manual no servidor de teste confirma com o banco. | a fazer | `feat(bot): persiste sessões de voz` |
+| F1-20 | Persistir entrada, saída e troca de canal pelo bot, em vários servidores, pela API, encerrando a exceção da coleta antecipada. | Rafa | F0-03, F1-19, F1-49 | Com eventos simulados: cada caso gera o registro definido no ADR 0005, com `guild_id`, inclusive troca entre servidores com eventos em qualquer ordem; mudo e transmissão não geram gravação; quem não consentiu não gera registro. O bot deixa de gravar direto no Neon, o papel de escrita de F1-48 é revogado, e os eventos brutos já gravados continuam no banco e são lidos conforme o ADR 0005 (D-26). Roteiro manual no servidor de teste confirma com o banco. | a fazer | `feat(bot): persiste sessões de voz` |
 | F1-21 | Reconciliar na inicialização e fechar órfãs. | Rafa | F1-08, F1-20 | Matar o bot com alguém na call e religar produz o resultado definido no ADR 0007, sem duplicar, em todos os servidores; o sinal do bot fica em memória na VM, com gravação periódica a cada 30 min (D-19); API fora do ar não derruba o bot nem perde a reconciliação ao voltar; o primeiro login, sem conexão anterior, não é tratado como queda (na F0-03 ele pode gerar `queda detectada`). | a fazer | `feat(bot): reconcilia e fecha sessões órfãs` |
 | F1-41 | Permitir que a pessoa escolha em qual servidor colocar o bot. | Ambos (Lia: tela; Rafa: link e bot) | F1-17, F1-20 | A tela abre o convite do Discord, onde a pessoa escolhe o servidor, com permissões mínimas e OAuth de login ainda só com `identify`. Roteiro manual em um segundo servidor: quem consentiu é registrado com o `guild_id` certo, quem não consentiu não é; remover o bot do servidor não derruba o bot nem deixa sessão aberta daquele servidor; remover e recolocar o bot não é tratado como queda (na F0-03 isso gera `saiu_na_queda` sem ter havido queda). O relatório confirma, em fonte oficial, a partir de quantos servidores o Discord exige verificação. | a fazer | `feat(web): adiciona convite do bot` |
 
 ### Bloco E: coleta em produção
 
+F1-24 (backup) foi para a [trilha de coleta antecipada](#trilha-de-coleta-antecipada), na forma inicial decidida em D-18. A coleta do usuário número 1 já começa em F1-49; F1-26 abre a coleta pela API para qualquer pessoa com consentimento real.
+
 | ID | Objetivo | Resp. | Depende de | Critério de aceite | Status | Commit previsto |
 |---|---|---|---|---|---|---|
 | F1-22 | Fechar o ambiente local: banco e bot no compose, API e web com Wrangler. | Rafa | F1-04, F1-12, F1-16, F1-21 | Em clone limpo, com `.env` copiado do `.env.example` e seguindo o README, `docker compose up` deixa banco e bot saudáveis, Wrangler sobe API e web, e o bot no container alcança a API local; imagens sem segredos. | a fazer | `build(repo): fecha ambiente local com compose e Wrangler` |
 | F1-23 | Automatizar o deploy pelo GitHub Actions. | Rafa | F0-08, F1-03, F1-22, F1-40, U-08 | O merge de `dev` na `main`, que só acontece quando o usuário considera `dev` estável, publica só o que mudou (filtros do ADR 0001): Worker com Wrangler e bot na VM; migrations rodam antes da API, com conexão direta ao Neon e fora do Worker; a verificação de F1-40 roda após publicar; falha de deploy deixa a versão anterior no ar; logs sem segredos. | a fazer | `ci(deploy): adiciona deploy automático` |
-| F1-24 | Automatizar backup diário e testar a restauração. | Rafa | F1-23, D-18 | Dump roda pela VM e aparece no destino de D-18 no dia seguinte, com credencial só de leitura; restaurar em banco limpo devolve as mesmas contagens por tabela; backups expiram em até 30 dias; saída e horas consumidas do Neon ficam medidas. | a fazer | `chore(infra): adiciona backup e restauração` |
-| F1-25 | Adicionar monitoramento mínimo, gatilho de limites e runbook de produção. | Rafa | F1-23 | Parar o bot gera alerta em até 10 min; banco inacessível gera alerta em até 1 h; a verificação não mantém o Neon acordado; consumo de horas, armazenamento e saída do Neon e dos limites diários da Cloudflare fica visível; atingir 70% de qualquer limite (proposta deste plano) alerta o usuário, que decide a resposta; seguir o runbook recupera o serviço e restaura um backup. | a fazer | `docs(infra): adiciona runbook de produção` |
+| F1-25 | Adicionar monitoramento mínimo, gatilho de limites e runbook de produção. | Rafa | F1-23, F1-49 | Parar o bot gera alerta em até 10 min; banco inacessível gera alerta em até 1 h; a verificação não mantém o Neon acordado; consumo de horas, armazenamento e saída do Neon e dos limites diários da Cloudflare fica visível; atingir 70% de qualquer limite (proposta deste plano) alerta o usuário, que decide a resposta; seguir o runbook recupera o serviço e restaura um backup. | a fazer | `docs(infra): adiciona runbook de produção` |
 | F1-37 | Permitir revogar o consentimento e excluir a conta. Vem antes de abrir a coleta, pois a Fase 1 não tem allowlist. | Ambos | F1-17, F1-20 | E2E: a tela mostra o servidor de origem dos registros do bot (D-17); depois de revogar, nova call não gera registro e o histórico continua; depois de excluir, as tabelas do usuário ficam sem linhas dele, com sessões de timer e manual semeadas no banco junto com as do bot, e os tokens são recusados. Timer e manual reais repetem o critério em F1-31 e F1-42. | a fazer | `feat(api): adiciona revogação e exclusão de conta` e `feat(web): adiciona tela de privacidade` |
-| F1-26 | Colocar a coleta em produção com o usuário número 1. | Ambos | F1-18, F1-21, F1-23, F1-24, F1-25, F1-37, F1-41 | O usuário faz login, consente e convida o bot em produção; uma sessão real aparece no banco em UTC; conta sem vínculo na mesma call não gera registro. | a fazer | `docs(infra): registra início da coleta em produção` |
+| F1-26 | Abrir a coleta em produção pela API, com consentimento real, começando pelo usuário número 1. | Ambos | F1-18, F1-20, F1-21, F1-23, F1-24, F1-25, F1-37, F1-41 | O usuário faz login, consente e convida o bot em produção; uma sessão real aparece no banco em UTC; conta sem vínculo na mesma call não gera registro; a lista de consentimento da coleta antecipada é removida, e os eventos do período antecipado aparecem ligados à conta do usuário. | a fazer | `docs(infra): registra início da coleta em produção` |
 
 ### Bloco F: cálculos (TDD, pode começar após F1-09)
 
@@ -163,7 +227,7 @@ Decisões que o Rafa levou ao usuário, para o ADR 0007:
 
 | ID | Objetivo | Resp. | Depende de | Critério de aceite | Status | Commit previsto |
 |---|---|---|---|---|---|---|
-| F1-38 | Atualizar a documentação pública. | Ambos | F1-26 a F1-37, F1-40 a F1-45 | Seguir o "Como rodar" do README em clone limpo funciona; status, roadmap, tabela de ADRs e seção de privacidade refletem o que está no ar. | a fazer | `docs(readme): atualiza execução e status da Fase 1` |
+| F1-38 | Atualizar a documentação pública. | Ambos | F1-26 a F1-37, F1-40 a F1-49 | Seguir o "Como rodar" do README em clone limpo funciona; status, roadmap, tabela de ADRs e seção de privacidade refletem o que está no ar. | a fazer | `docs(readme): atualiza execução e status da Fase 1` |
 | F1-39 | Comprovar o uso diário em produção. | Ambos | F1-38 | S-04: 14 dias seguidos de uso pelo usuário, sem sessão perdida conhecida, com um fluxo E2E completo de Theo aprovado em produção. | a fazer | `docs(planejamento): encerra a Fase 1` |
 
 ## Fase 2: tempo real (alto nível)
@@ -179,15 +243,15 @@ Começa só com F1-39 concluída e ADR 0009 aceito. Será detalhada nesse moment
 
 | ADR | Situação | Decidir | Bloqueia | Observação |
 |---|---|---|---|---|
-| Login por Google e Discord (revisão do 0003 ou ADR novo) | A criar | Bloco B (F1-45) | F1-09, F1-44 e, por consequência, F1-31 | O ADR 0003 só prevê Discord. Direção decidida em D-13 |
-| 0004 Hospedagem | Aceito, com ressalva | F0-08 | Saída da Fase 0 | Falta confirmar o provedor do bot. O banco está decidido (D-23) |
-| 0005 Sessões | Planejado | Início do bloco B (F1-05) | F1-09, F1-11, F1-20 | É o mais urgente: o que não for gravado desde o início não pode ser recuperado |
-| 0006 Fuso | Planejado | Início do bloco B (F1-06) | F1-09, F1-27 e, por consequência, F1-33 e F1-34 | |
+| Login por Google e Discord (revisão do 0003 ou ADR novo) | A criar | Já, em rascunho (F1-45) | F1-09, F1-44 e, por consequência, F1-31 | O ADR 0003 só prevê Discord. Direção decidida em D-13 |
+| 0004 Hospedagem | Aceito, com ressalva | F0-08 | Saída da Fase 0 | Falta confirmar o provedor do bot (D-20). O banco está decidido (D-23). A seção de backup diz que o dump roda pela VM; precisa refletir D-18 e D-31 (dump diário no PC do usuário, em `backups/`) |
+| 0005 Sessões | Planejado | Já, em rascunho (F1-05) | F1-09, F1-11, F1-20 | É o mais urgente: precisa dizer como os eventos brutos da coleta antecipada viram sessões. A tabela bruta (F1-46) não espera por ele, pois só guarda o fato |
+| 0006 Fuso | Planejado | Já, em rascunho (F1-06) | F1-09, F1-27 e, por consequência, F1-33 e F1-34 | |
 | 0007 Órfãs | Planejado | Bloco B (F1-08), com o resultado de F0-03 | F1-11, F1-21 | Segue D-14 e D-19. Precisa respeitar o limite de horas do Neon |
 | 0008 Agregação | Planejado | Após F1-28 (F1-30) | F1-33, F1-34 | O limite de 10 ms de CPU restringe a escolha; dados brutos permitem trocá-la sem migrar histórico |
 | 0009 SSE ou WebSocket | Planejado | Início da Fase 2 | Toda a Fase 2 | Reavaliar Redis, SSE e k6 sob Workers |
 | 0010 API em Workers | Aceito quanto a Workers; Hono sujeito à prova | F0-08, com F0-10 e F0-11 | F1-12 | Se a rota não couber no limite com qualquer framework, vale o gatilho de revisão |
-| 0011 Escrita do bot | Planejado | Bloco B (F1-07) | F1-08, F1-19 | Resolve o item 6 do ADR 0003 |
+| 0011 Escrita do bot | Planejado | Já, em rascunho (F1-07) | F1-08, F1-19 | Resolve o item 6 do ADR 0003 e registra a exceção temporária da coleta antecipada (D-26). Não bloqueia a coleta antecipada |
 
 ## Riscos principais
 
@@ -196,28 +260,33 @@ Começa só com F1-39 concluída e ADR 0009 aceito. Será detalhada nesse moment
 | Fase 1 aberta sobre um único banco gratuito (400 h e 1 GB compartilhados) | Ao esgotar, site e coleta param até o próximo ciclo, e dados podem se perder | Consumo visível e alerta em 70%, proposta deste plano (F1-25); a resposta ao gatilho é decisão do usuário |
 | Rota real não cabe em 10 ms de CPU | API inviável em Workers no plano gratuito | F0-10 mede antes do código real; F1-30, F1-33, F1-34 e F1-40 acompanham; gatilho de revisão do ADR 0010 |
 | Neon não suspende com o Hyperdrive conectado, ou sinais frequentes o mantêm acordado | As 400 h acabam antes do fim do mês | F0-11; D-19; F1-08 estima o consumo |
-| Plano gratuito muda, falta capacidade ou a VM ociosa é reclaimed | Bot fora do ar, histórico em perigo | F0-05, F0-06, plano de saída do ADR 0004, bot em container, backup externo (F1-24) |
+| O sinal de 30 min da coleta antecipada mantém o Neon acordado (estimativa: cerca de 120 h por mês) | Sobram menos horas para a API e o site | Medir em F1-47 e F1-49; [custo do Neon](#custo-do-neon-na-coleta-antecipada); rever D-19 é decisão do usuário |
+| Bot com credencial de escrita direta no banco (exceção da D-26) | VM comprometida alcança o banco | Papel que só insere na tabela bruta (F1-48); revogado em F1-20 |
+| Banco fora do ar ou conexão perdida durante a coleta antecipada | Eventos perdidos sem recuperação | Fila em disco com idempotência (F1-47), provada também na VM (F1-49) |
+| Backup local depende do PC do usuário ligado e do comando rodando | Dias sem backup passam despercebidos | Forma inicial aceita (D-18), a rever depois que estiver no ar; o histórico curto do Neon não substitui o dump |
+| Plano gratuito muda, falta capacidade ou a VM ociosa é reclaimed | Bot fora do ar, histórico em perigo | F0-05, F0-06, plano de saída do ADR 0004, bot em container, backup local (F1-24) |
 | Cookie de refresh falha com SPA e API no mesmo Worker | Login cai ao recarregar a página, e a topologia volta ao usuário, podendo envolver domínio pago | F0-07 testa antes de existir login real; D-02 |
-| Testcontainers ainda não foi testado com o Docker atual (Engine no WSL, com repasse no Windows) | Testes de integração de F1-04 em diante sem base | F1-04 testa cedo e relata antes de seguir |
+| Testes com Testcontainers dependem do Docker ligado manualmente (U-05) | Com a distro `docker-engine` desligada, os testes de `packages/db` falham, o que pode parecer erro de código | F1-04 provou que o Testcontainers funciona com o Engine no WSL e o repasse no Windows; o README explica o erro e como ligar o Docker |
+| Base da API feita em Hono antes da prova de F0-10 | Retrabalho se o Hono não couber no limite de CPU | Base pequena (F1-12); F0-10 assim que a conta na Cloudflare existir |
 | Testcontainers roda em Node e não prova o comportamento em Workers | Falha só aparece no ar | F1-40, repetida no deploy (F1-23) |
 | Evento de voz perdido não tem recuperação | Tempo falso ou histórico incompleto | F0-03, F1-21, coleta em produção cedo |
 | Discord real não pode ser automatizado em E2E | Falha só aparece em produção | Eventos e OAuth simulados na suíte, roteiro manual com o usuário (S-03) |
 | Erro de fuso e horário de verão na streak | Perda de confiança no dado principal | TDD em F1-27 a F1-29, cálculo sempre refeito a partir do bruto |
-| Registrar quem não consentiu, inclusive em logs, agora sem allowlist em produção | Quebra a regra de privacidade do projeto | Allowlist de teste no spike (F0-02), testes em F1-19, F1-20, F1-26 e F1-41; revogar e excluir antes de abrir (F1-37) |
+| Registrar quem não consentiu, inclusive em logs, agora sem allowlist em produção | Quebra a regra de privacidade do projeto | Allowlist de teste no spike (F0-02); lista de consentimento explícito na coleta antecipada (F1-47); testes em F1-19, F1-20, F1-26 e F1-41; revogar e excluir antes de abrir (F1-37) |
 | Bot em muitos servidores pode exigir verificação do Discord (limite a confirmar) | Novos convites podem parar de funcionar | Confirmar em F1-41 e acompanhar o número de servidores |
 
 ## Pré-requisitos do usuário
 
-Situação em 2026-11-06.
+Situação em 2026-11-09.
 
 | ID | Pré-requisito | Necessário para | Situação |
 |---|---|---|---|
 | U-01 | Aplicação no Discord com bot e token, sem intents privilegiadas, com o token só no `.env` local | F0-02 | Em uso na F0-02, por relato do usuário |
 | U-02 | Servidor de teste com canal de voz, canal AFK e uma segunda conta que não se vincula; depois, um segundo servidor | F0-02, F1-20, F1-41 | Parcial: canal de voz em uso na F0-02; o usuário ainda não tem segunda conta (ver [Testes pendentes do usuário](#testes-pendentes-do-usuário)); canal AFK e segundo servidor não verificados |
-| U-03 | Contas na Cloudflare, no Neon e na Oracle. Cartão: a Oracle pede só para verificação (F0-05); na Cloudflare, não confirmado, a anotar pelo usuário ao criar a conta | F0-06, F0-07, F0-10 | Não verificado |
+| U-03 | Contas na Oracle, no Neon e na Cloudflare. Cartão: a Oracle pede só para verificação (F0-05); na Cloudflare, não confirmado, a anotar pelo usuário ao criar a conta | Oracle: F0-06. Neon: F1-48. Cloudflare: F0-10, F0-07 | Em andamento: o usuário vai criar Oracle e Neon agora, com um passo a passo local em `PASSO-A-PASSO-CONTAS.md`, fora do Git. Cloudflare só quando chegar a F0-10 (D-27) |
 | U-04 | pnpm funcionando | Nenhuma atividade pendente (F0-01 não depende mais dele) | Resolvido |
-| U-05 | Docker ligado manualmente: `wsl -d docker-engine`, com o terminal aberto enquanto usar (ver README). Sem início automático, por escolha do usuário; Docker Desktop não é mais usado | F0-04, F1-04, F1-22, testes com Testcontainers | Definido; a ligar a cada uso |
-| U-06 | Disponibilidade para os roteiros manuais de voz | F0-02, F0-03, F0-06, F1-20, F1-26, F1-41 | Ver S-03 |
+| U-05 | Docker ligado manualmente: `wsl -d docker-engine`, com o terminal aberto enquanto usar (ver README). Sem início automático, por escolha do usuário; Docker Desktop não é mais usado | F0-04, F0-12, F1-04, F1-22, F1-24 (restauração), testes com Testcontainers | Definido; a ligar a cada uso |
+| U-06 | Disponibilidade para os roteiros manuais de voz | F0-02, F0-03, F0-06, F1-49, F1-20, F1-26, F1-41 | Ver S-03 |
 | U-07 | `client_id`, `client_secret` e redirect URIs do OAuth2 do Discord e do Google | F1-13, F1-44 | Não verificado |
 | U-08 | Secrets no GitHub para deploy | F1-23 | A fazer |
 
@@ -228,7 +297,9 @@ Lista de testes para o usuário fazer depois, a pedido dele.
 | Teste | Atividade | Responsável | Motivo | Status |
 |---|---|---|---|---|
 | Com uma segunda conta, fora da allowlist, entrar e sair de um canal de voz e confirmar que nada aparece no terminal. | F0-02 | Usuário | No momento ele só tem um usuário | a fazer |
+| Com o Docker ligado, rodar `docker compose up --build bot` e repetir o roteiro de F0-02 no Discord real: entrar, trocar e sair geram as 3 linhas; mutar não gera linha; `Ctrl+C` encerra o bot. | F0-04 | Usuário | O Theo não entra em canal de voz (S-03) | a fazer |
 | Queda de internet: com o celular em dados móveis na call e o bot rodando no PC, deixar o PC sem rede por pelo menos 3 min. Anotar o `modo` (`resume` ou `identify`), as linhas `queda detectada` e `retomada` e a hora em que saiu da call pelo celular. Repetir ficando na call. Encerrar com Ctrl+C e confirmar que não aparece linha falsa de queda. | F0-03 | Usuário | A reconexão só foi testada no Discord simulado | a fazer |
+| Com uma segunda conta, fora da lista de consentimento, entrar e sair de um canal de voz com o bot na VM e confirmar que nada aparece no Neon nem no log. | F1-49 | Usuário | No momento ele só tem um usuário | a fazer, depois de F1-49 |
 
 ## Suposições aceitas
 
@@ -247,7 +318,7 @@ Lista de testes para o usuário fazer depois, a pedido dele.
 |---|---|---|---|
 | D-01 | Onde hospedar? | Front e API na Cloudflare; banco no Neon (D-23); bot em VM gratuita. Oracle como primeira opção e as alternativas do ADR 0004 são recomendação da equipe | Provedor do bot: D-20 |
 | D-02 | Como ficam front e API para o cookie de refresh funcionar, e haverá domínio próprio? | Tentar SPA e API no mesmo Worker, em `workers.dev`, sem comprar domínio | F0-07; se falhar, volta ao usuário |
-| D-03 | O bot grava pela API ou direto no banco? | Pela API, com credencial de serviço (ADR 0011) | F1-07 |
+| D-03 | O bot grava pela API ou direto no banco? | Pela API, com credencial de serviço (ADR 0011) | F1-07. Exceção temporária até a API existir: D-26 |
 | D-04 | O que faz um dia contar para a streak? | Mínimo de 15 min no dia, no fuso do usuário, somando as fatias; o dia de hoje só quebra a streak quando termina | |
 | D-05 | Quais regras valem no cálculo da Fase 1? | O bot só registra quem está na call e por quanto tempo, sem gravar mudo nem transmissão; só o canal AFK fica de fora | |
 | D-06 | Quais servidores e canais contam? | Vários servidores: a pessoa escolhe em qual colocar o bot; guardar `guild_id` | |
@@ -256,18 +327,26 @@ Lista de testes para o usuário fazer depois, a pedido dele.
 | D-09 | Quem pode entrar na Fase 1? | Qualquer pessoa, sem allowlist, com consentimento obrigatório para a coleta pelo bot | |
 | D-10 | O que acontece ao revogar o consentimento e excluir a conta? | Revogar para a coleta e mantém o histórico; excluir apaga tudo de forma definitiva, e os backups expiram em até 30 dias | |
 | D-11 | Os períodos são de calendário ou móveis, e quando começa a semana? | Calendário, com semana de domingo a sábado | |
-| D-12 | Quando autorizar push, PR, GitHub Actions e GitHub Projects? | Push ao aprovar este plano; Projects logo depois, com as atividades daqui como itens. Push direto em `dev`, sem PR, porque o login do `gh` não funcionou; pode ser revista | Forma do merge de `dev` para `main`: em aberto, a perguntar depois |
+| D-12 | Quando autorizar push, PR, GitHub Actions e GitHub Projects? | Push ao aprovar este plano; Projects logo depois, com as atividades daqui como itens. Push direto em `dev`, sem PR, porque o login do `gh` não funcionou; pode ser revista. O `gh` fica instalado em `A:\gh` e não deve ser removido (2026-11-09) | Forma do merge de `dev` para `main`: em aberto, a perguntar depois |
 | D-13 | De que forma se entra sem Discord? | Google e Discord; sem e-mail e senha | F1-45 |
 | D-14 | O que acontece com o timer ao fechar o site? | Guardar até o último sinal recebido | F1-08 |
 | D-15 | Tempo manual retroativo conta na streak? | Conta, marcado como manual | |
 | D-16 | O registro manual exige início e fim? | Sim | |
 | D-17 | O consentimento é global ou por servidor? | Global na Fase 1, mostrando o servidor de origem | |
+| D-18 | Qual o destino do backup? | Em 2026-11-09, decidido inicialmente: dump em arquivo físico local, fora do Git, na pasta `backups/` (já no `.gitignore`). A forma definitiva será revista depois que estiver no ar e funcionando | F1-24; revisão posterior. Onde e quando roda: D-31 |
 | D-19 | Como tratar sinais frequentes sem gastar o Neon? | Sinal em memória na VM e gravação periódica a cada 30 min | F1-08 |
 | D-21 | O registro manual pode ser corrigido ou excluído? | Sim, pode ser corrigido e excluído | |
 | D-22 | Tempo manual sobreposto a timer ou call entra na união? | Sim | |
 | D-23 | Provedor do banco: confirmar o Neon? | Sim, Neon confirmado | F0-11 prova a suspensão com o Hyperdrive |
 | D-24 | O texto do consentimento avisa sobre o alcance global (D-17)? | Sim: avisa que o consentimento vale para qualquer servidor que tenha o bot | F1-18 |
 | D-25 | Bot conectado ou Worker agendado consultando estados de voz? | Bot conectado (Gateway em VM); a alternativa de Worker agendado foi descartada. Detalhes no ADR 0004 | |
+| D-26 | Começar a coletar antes da API existir? | Em 2026-11-09: sim. Até a API existir, o bot grava direto no Neon, numa tabela só de eventos brutos (entrada, saída e troca, com horário UTC e IDs), como exceção temporária à D-03, que segue valendo. Quando a API existir, o bot passa a gravar por ela, e os eventos já gravados seguem como dado bruto preservado. Só registra quem consentiu. Sem sinal frequente: o sinal fica em memória e é gravado a cada 30 min (D-19). Motivo, nas palavras do usuário: "como os dados são reais, quanto mais tempo perdemos menos dados vamos ter" | [Trilha de coleta antecipada](#trilha-de-coleta-antecipada); D-29 e D-30 |
+| D-27 | Quais contas criar agora? | Em 2026-11-09: o usuário cria as contas na Oracle e no Neon (U-03). Cloudflare só quando chegar a F0-10 | U-03 |
+| D-28 | Login e dashboard esperam a coleta? | Em 2026-11-09: não. Lia na base da SPA (`apps/web`) e Rafa na base da API (`apps/api`), em paralelo e localmente | [Trilha paralela](#trilha-paralela-base-de-login-e-dashboard) |
+| D-29 | Quem está na lista de consentimento da coleta antecipada? | Em 2026-11-09: só o próprio usuário ("apenas eu estarei na lista"). Outra pessoa só com nova decisão dele e consentimento explícito dela ([detalhes](#consentimento-na-coleta-antecipada)) | F1-47, F1-49 |
+| D-30 | Além de entrada, saída e troca, gravar quem já estava na call quando o bot conecta e os marcos do bot? | Em 2026-11-09: sim. Grava `voice_present` e os marcos de início, queda, retomada, sinal de 30 min e parada do bot, o que confirma a proposta já implementada na F1-46. Sem eles, uma sessão aberta durante uma queda do bot não pode ser fechada depois (insumo de F1-08) | F1-47 |
+| D-31 | Onde e com que frequência roda o dump de D-18? | Em 2026-11-09: no PC do usuário, na pasta `backups/` do repositório, diariamente, quando o PC estiver ligado. O ADR 0004 diz que o dump roda pela VM e precisa ser atualizado pelo Rafa | F1-24, ADR 0004 |
+| D-32 | A Lia faz um protótipo do dashboard com dados simulados antes da API? | Em 2026-11-09: sim, depois da F1-16, em `apps/web`, sem API e com os dados falsos claramente marcados (F1-50). Nas palavras do usuário: "seria de grande ajuda" | F1-50 |
 
 Formas de registrar tempo, também por decisão do usuário: manual (inclusive retroativa), timer no site sem precisar de Discord, e Discord. Por isso, existe conta sem Discord, que entra com Google, e `discord_id` é opcional.
 
@@ -275,5 +354,5 @@ Formas de registrar tempo, também por decisão do usuário: manual (inclusive r
 
 | ID | Pergunta | Direção ou recomendação (não decidida) | Bloqueia |
 |---|---|---|---|
-| D-18 | Qual o destino do backup? O backup roda pela VM, por decisão do usuário | Levantamento pendente (Rafa) | F1-24 |
-| D-20 | Qual o provedor final do bot? | Decidir com o resultado de F0-06 | F0-08 |
+| D-20 | Qual o provedor final do bot? | Sem decisão em 2026-11-09: confirmar a Oracle depois das 72 h e dos 7 dias de F0-06, ou trocar pelo plano de saída do ADR 0004 | F0-08 |
+| D-33 | Qual versão do TypeScript e qual linter valem no repositório todo? | Sem decisão em 2026-11-09: hoje `apps/bot` e `packages/db` usam TypeScript 7, e `apps/web` usa TypeScript 6 com ESLint e `typescript-eslint`. Opções: TypeScript 6 com ESLint em todo o repositório, ou TypeScript 7 com outro linter | F1-01 |
