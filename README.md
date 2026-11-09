@@ -70,7 +70,7 @@ Estrutura do repositório. Hoje só existem `apps/bot` (spike de log de voz) e `
 
 ```
 apps/
-  web/      # planejado: SPA
+  web/      # SPA (React + Vite), base com login simulado
   api/      # planejado: API HTTP (Hono em Cloudflare Workers)
   bot/      # bot do Discord (spike de log de voz), com Dockerfile; compose.yaml na raiz
 packages/   # planejado
