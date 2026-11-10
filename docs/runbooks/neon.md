@@ -100,6 +100,17 @@ O esperado é uma lista de `ok` e, no fim, `Tudo certo.` Qualquer `FALHOU` vem c
 
 Isto acontece na F0-06 ou na F1-49, quando a VM existir. No `.env` da VM, `BOT_DATABASE_URL` recebe o **valor** de `NEON_BOT_URL` (o texto depois do `=`). `NEON_ADMIN_URL` e `NEON_BACKUP_URL` nunca vão para a VM: se ela for comprometida, quem a invadir só consegue inserir eventos.
 
+O passo a passo está no [runbook da Oracle](vm-oracle.md#6-o-env-da-vm).
+
+## 6. Conferir o que chegou
+
+```
+pnpm --filter @studyrooms/db neon summary
+pnpm --filter @studyrooms/db neon summary --hours 72
+```
+
+Mostra, para as últimas 24 h (ou o número de horas pedido, de 1 a 720), quantos eventos de cada tipo há no Neon e o horário do último de cada tipo, em UTC, além do total, do número de pessoas distintas e da última gravação. Não mostra IDs. Usa a conexão só leitura do backup (`NEON_BACKUP_URL`). Cada execução acorda o Neon por alguns minutos.
+
 ## Trocar as senhas
 
 Se uma conexão vazar, ou por rotina:
@@ -170,7 +181,7 @@ Quem deixa de consentir sai da lista e, se pedir, tem todos os eventos apagados.
 
    O último comando deve mostrar 0.
 6. **Fila local do PC**, se o bot rodou no PC com essa pessoa na lista: `node apps/bot/src/quarantine-cli.ts esquecer ID_DA_PESSOA`, com o bot local parado.
-7. **Cópias que sobram:** os backups locais da F1-24 (em `backups/`, apagados depois de 30 dias) e o histórico de restauração do próprio Neon ainda têm os eventos até expirarem. O que fazer com eles está em aberto (veja Decisões pendentes da F1-48).
+7. **Cópias que sobram:** os backups locais da F1-24 (em `backups/`, apagados depois de 30 dias) e o histórico de restauração do próprio Neon ainda têm os eventos até expirarem. Decidido em D-49 (2026-11-10): essas cópias expiram em até 30 dias, e o texto do consentimento avisa isso.
 8. Anote a data do pedido e da exclusão num lugar privado, sem o ID.
 
 ## Problemas comuns

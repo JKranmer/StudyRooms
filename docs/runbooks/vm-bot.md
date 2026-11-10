@@ -1,6 +1,6 @@
 # Runbook: bot na VM
 
-Este runbook começa pela supervisão do bot (F0-12). A subida completa na Oracle (criação da VM, Docker, clone, `.env`, observação de 72 h e 7 dias) entra na F0-06.
+Este runbook trata da supervisão e da operação do bot na VM (F0-12). A subida completa na Oracle, do zero (chave SSH, criação da VM, rede, Docker, clone, `.env`, verificação e medições de 72 h e 7 dias da F0-06), está em [vm-oracle.md](vm-oracle.md).
 
 ## Supervisão pelo systemd
 
