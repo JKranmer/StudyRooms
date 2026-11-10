@@ -100,7 +100,21 @@ function serialize(events: readonly QueuedEvent[]): string {
   return events.map((event) => `${JSON.stringify(event)}\n`).join("");
 }
 
-export type OpenResult = { queue: DiskQueue; loaded: number; damaged: number };
+export type OpenResult = {
+  queue: DiskQueue;
+  loaded: number;
+  damaged: number;
+  /**
+   * Código do erro se as linhas ilegíveis não couberam na quarentena (disco cheio). Nesse caso,
+   * elas continuam na fila e vão para a quarentena na próxima regravação ou abertura.
+   */
+  quarantineError: string | null;
+};
+
+function errorCode(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : "desconhecido";
+}
 
 /**
  * Fila de eventos ainda não gravados no banco, num arquivo JSON por linha.
@@ -120,6 +134,8 @@ export class DiskQueue {
   readonly #quarantinePath: string;
   readonly #write: WriteFn;
   #events: QueuedEvent[];
+  /** Linhas ilegíveis que ainda não couberam na quarentena; seguem no início da fila em disco. */
+  #damaged: string[] = [];
 
   private constructor(dir: string, events: QueuedEvent[], write: WriteFn) {
     this.#dir = dir;
@@ -156,16 +172,24 @@ export class DiskQueue {
     }
 
     const queue = new DiskQueue(dir, events, options.write ?? writeSync);
+    let quarantineError: string | null = null;
     if (damagedLines.length > 0) {
-      const at = new Date().toISOString();
-      appendDurably(
-        queue.#write,
-        queue.#quarantinePath,
-        damagedLines.map((line) => `${JSON.stringify({ reason: "linha_ilegivel", at, line })}\n`).join(""),
-      );
-      queue.#persist(events);
+      // Disco cheio aqui não impede a subida: o bot segue, e a fila em disco fica como estava.
+      queue.#damaged = damagedLines;
+      try {
+        queue.#quarantineDamaged();
+      } catch (error) {
+        quarantineError = errorCode(error);
+      }
+      if (quarantineError === null) {
+        try {
+          queue.#persist(events);
+        } catch {
+          // As linhas já estão na quarentena; a próxima regravação as tira da fila.
+        }
+      }
     }
-    return { queue, loaded: events.length, damaged: damagedLines.length };
+    return { queue, loaded: events.length, damaged: damagedLines.length, quarantineError };
   }
 
   get size(): number {
@@ -205,7 +229,27 @@ export class DiskQueue {
     this.drop(1);
   }
 
+  /** Move as linhas ilegíveis pendentes para a quarentena. Lança se o disco não aceitar. */
+  #quarantineDamaged(): void {
+    if (this.#damaged.length === 0) return;
+    const at = new Date().toISOString();
+    appendDurably(
+      this.#write,
+      this.#quarantinePath,
+      this.#damaged.map((line) => `${JSON.stringify({ reason: "linha_ilegivel", at, line })}
+`).join(""),
+    );
+    this.#damaged = [];
+  }
+
   #persist(events: readonly QueuedEvent[]): void {
-    replaceDurably(this.#write, this.#dir, this.#pendingPath, serialize(events));
+    try {
+      this.#quarantineDamaged();
+    } catch {
+      // Sem espaço para a quarentena, as linhas ilegíveis continuam no início da fila.
+    }
+    const damaged = this.#damaged.map((line) => `${line}
+`).join("");
+    replaceDurably(this.#write, this.#dir, this.#pendingPath, damaged + serialize(events));
   }
 }

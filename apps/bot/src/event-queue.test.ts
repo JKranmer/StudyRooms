@@ -189,3 +189,69 @@ test("write que devolve 0 bytes sem erro não vira laço infinito", () => {
   assert.throws(() => queue.append(event()), { code: "ENOSPC" });
   assert.equal(queue.size, 0);
 });
+
+// Observação do Theo (F1-47): religar com o disco cheio e linhas ilegíveis na fila fazia o bot sair.
+const DAMAGED = '{"idempotencyKey":"cortada';
+
+test("disco cheio ao reabrir com linha ilegível: abre mesmo assim e mantém a linha na fila", () => {
+  const dir = tempDir();
+  const [a, b] = [event(), event()];
+  const original = `${JSON.stringify(a)}\n${DAMAGED}\n${JSON.stringify(b)}\n`;
+  writeFileSync(join(dir, PENDING_FILE), original);
+  const state = { free: 0 };
+  const opened = DiskQueue.open(dir, { write: fullDisk(state) });
+  assert.equal(opened.loaded, 2);
+  assert.equal(opened.damaged, 1);
+  assert.equal(opened.quarantineError, "ENOSPC");
+  assert.deepEqual(opened.queue.peek(10), [a, b]);
+  assert.equal(readFileSync(join(dir, PENDING_FILE), "utf8"), original, "a fila não foi tocada");
+});
+
+test("linha ilegível mantida por disco cheio vai para a quarentena na próxima regravação", () => {
+  const dir = tempDir();
+  const [a, b] = [event(), event()];
+  writeFileSync(join(dir, PENDING_FILE), `${JSON.stringify(a)}\n${DAMAGED}\n${JSON.stringify(b)}\n`);
+  const state = { free: 0 };
+  const { queue } = DiskQueue.open(dir, { write: fullDisk(state) });
+  state.free = Number.POSITIVE_INFINITY;
+  queue.drop(1);
+  const quarantined = readFileSync(join(dir, QUARANTINE_FILE), "utf8").trim().split("\n");
+  assert.equal(quarantined.length, 1);
+  assert.equal(JSON.parse(quarantined[0]!).line, DAMAGED);
+  const reopened = DiskQueue.open(dir);
+  assert.equal(reopened.damaged, 0);
+  assert.deepEqual(reopened.queue.peek(10), [b]);
+});
+
+test("linha ilegível mantida por disco cheio não se perde se a regravação ainda falhar", () => {
+  const dir = tempDir();
+  const [a, b] = [event(), event()];
+  writeFileSync(join(dir, PENDING_FILE), `${JSON.stringify(a)}\n${DAMAGED}\n${JSON.stringify(b)}\n`);
+  const state = { free: 0 };
+  const { queue } = DiskQueue.open(dir, { write: fullDisk(state) });
+  assert.throws(() => queue.drop(1), { code: "ENOSPC" });
+  const reopened = DiskQueue.open(dir);
+  assert.equal(reopened.damaged, 1, "a linha ilegível continua na fila, para a quarentena da próxima abertura");
+  assert.deepEqual(reopened.queue.peek(10), [a, b]);
+});
+
+test("quarentena gravada mas regravação da fila sem espaço ao reabrir: abre e não separa a linha duas vezes", () => {
+  const dir = tempDir();
+  const [a, b] = [event(), event()];
+  writeFileSync(join(dir, PENDING_FILE), `${JSON.stringify(a)}\n${DAMAGED}\n${JSON.stringify(b)}\n`);
+  let calls = 0;
+  const failAfterFirst: Write = (fd, buffer, offset, length) => {
+    calls += 1;
+    if (calls > 1) throw Object.assign(new Error("ENOSPC"), { code: "ENOSPC" });
+    return writeSync(fd, buffer, offset, length);
+  };
+  const opened = DiskQueue.open(dir, { write: failAfterFirst });
+  assert.equal(opened.damaged, 1);
+  assert.equal(opened.quarantineError, null);
+  calls = Number.NEGATIVE_INFINITY;
+  opened.queue.drop(1);
+  const reopened = DiskQueue.open(dir);
+  assert.equal(reopened.damaged, 0);
+  assert.deepEqual(reopened.queue.peek(10), [b]);
+  assert.equal(readFileSync(join(dir, QUARANTINE_FILE), "utf8").trim().split("\n").length, 1);
+});
