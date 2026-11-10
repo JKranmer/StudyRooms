@@ -14,10 +14,13 @@ services:
         required: true
     # tini como PID 1: repassa SIGINT e SIGTERM ao Node e recolhe processos órfãos.
     init: true
-    # Erro fatal (token inválido, allowlist malformada, BOT_DATABASE_URL ausente, código sem
-    # reconexão) sai com código 1.
-    # O limite evita laço: depois de 5 tentativas, o container fica parado e o erro, visível no log.
-    restart: on-failure:5
+    # Códigos de saída: 0 no encerramento pedido; 78 para erro de configuração (token inválido,
+    # allowlist malformada, BOT_DATABASE_URL ausente, intents recusadas); 1 para as demais falhas.
+    # Erro de rede no login não derruba o bot: ele tenta de novo, com espera crescente.
+    # O Docker não filtra o código de saída na política de reinício: na VM, quem reinicia é o
+    # systemd (deploy/systemd/studyrooms-bot.service), que volta após o boot e não reinicia o 78.
+    # Por isso o Docker não reinicia o bot; localmente, ele roda em primeiro plano.
+    restart: "no"
     # O bot sai em até 3 s depois do sinal, mesmo com login ou reconexão pendentes.
     stop_grace_period: 10s
     read_only: true

@@ -46,6 +46,8 @@ export class FakeDiscord {
   closeOnIdentify: number | null = null;
   /** Para simular login ou reconexão pendentes: REST sem resposta, gateway sem Hello ou sem READY. */
   hangRest = false;
+  /** Status HTTP de erro devolvido pelo `/gateway/bot` (null: responde normalmente). */
+  gatewayStatus: number | null = null;
   withholdHello = false;
   withholdReady = false;
   restRequests = 0;
@@ -61,7 +63,10 @@ export class FakeDiscord {
       this.restRequests += 1;
       if (this.hangRest) return;
       res.setHeader("content-type", "application/json");
-      if (req.url?.includes("/gateway/bot")) {
+      if (req.url?.includes("/gateway/bot") && this.gatewayStatus !== null) {
+        res.statusCode = this.gatewayStatus;
+        res.end(JSON.stringify({ message: "erro falso", code: 0 }));
+      } else if (req.url?.includes("/gateway/bot")) {
         res.end(
           JSON.stringify({
             url: `ws://127.0.0.1:${this.port}`,

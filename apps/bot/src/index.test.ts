@@ -69,11 +69,11 @@ BOT_DATABASE_URL=${refusingDatabaseUrl()}
     }
   });
 
-  test("allowlist malformada impede a subida, com mensagem clara", () =>
+  test("allowlist malformada impede a subida com o código de configuração (78), com mensagem clara", () =>
     withBot(
       () => {},
       async (bot) => {
-        assert.equal(await bot.waitExit(), 1);
+        assert.equal(await bot.waitExit(), 78);
         assert.match(bot.output, /\[err\] \[bot\] erro: BOT_TEST_ALLOWLIST_USER_IDS malformado: o item 1 /);
       },
       { allowlist: `<@${ME}>` },
@@ -215,7 +215,7 @@ BOT_DATABASE_URL=${refusingDatabaseUrl()}
       },
     ));
 
-  test("código 4004 (sem reconexão) encerra o bot com código 1", () =>
+  test("código 4004 (token recusado, sem reconexão) encerra o bot com o código de configuração (78)", () =>
     withBot(
       () => {},
       async (bot, fake) => {
@@ -223,7 +223,61 @@ BOT_DATABASE_URL=${refusingDatabaseUrl()}
         fake.closeOnIdentify = 4004;
         fake.cut({ invalidate: true });
         await bot.waitFor(/encerrou a conexão sem permitir reconexão \(código: 4004\)/);
+        assert.equal(await bot.waitExit(), 78);
+      },
+    ));
+
+  test("código 4011 (sem reconexão, não é configuração) encerra o bot com código 1", () =>
+    withBot(
+      () => {},
+      async (bot, fake) => {
+        await bot.waitFor(/estado inicial: 0 da allowlist/);
+        fake.closeOnIdentify = 4011;
+        fake.cut({ invalidate: true });
+        await bot.waitFor(/encerrou a conexão sem permitir reconexão \(código: 4011\)/);
         assert.equal(await bot.waitExit(), 1);
+      },
+    ));
+
+  // F0-12: erro de rede no login não derruba o bot; ele tenta de novo, com espera crescente.
+  test("Discord fora no login (503): o bot não sai, espera 5 s e conecta quando o Discord volta", () =>
+    withBot(
+      (fake) => {
+        fake.gatewayStatus = 503;
+        fake.setVoice(ME, SALA_1);
+      },
+      async (bot, fake) => {
+        await bot.waitFor(/^\[bot\] aviso: não foi possível conectar ao Discord \(código: HTTP_503\); tentativa 1; nova tentativa em 5 s\.$/);
+        fake.gatewayStatus = null;
+        await bot.waitFor(/^\[bot\] conectado como "bot-falso"; servidores: 1\.$/);
+        await bot.waitFor(/^\[bot\] estado inicial: 1 da allowlist em call\.$/);
+        // O login só resolve depois do READY: esta linha pode vir antes ou depois das de cima.
+        await until(() => bot.lines.some((line) => line.text === "[bot] conectado ao Discord na tentativa 2."));
+        fake.emitVoice(ME, SALA_2);
+        await bot.waitFor(/ trocou de="Sala 1" de_id=500000000000000501 para="Sala 2" para_id=500000000000000502 usuario=100000000000000111$/);
+        // Sem exigir silêncio: o aviso do banco falso pode chegar a qualquer momento.
+        bot.terminate();
+        assert.equal(await bot.waitExit(STOP_MS), 0);
+      },
+    ));
+
+  test("SIGTERM (docker stop) durante a espera entre tentativas de login encerra com código 0, no prazo", () =>
+    withBot(
+      (fake) => (fake.gatewayStatus = 502),
+      async (bot) => {
+        await bot.waitFor(/tentativa 1; nova tentativa em 5 s\.$/);
+        await interruptCleanly(bot, "SIGTERM");
+      },
+    ));
+
+  test("token recusado no login (401): sai com o código de configuração (78), sem nova tentativa", () =>
+    withBot(
+      (fake) => (fake.gatewayStatus = 401),
+      async (bot, fake) => {
+        assert.equal(await bot.waitExit(), 78);
+        assert.match(bot.output, /\[err\] \[bot\] erro: DISCORD_BOT_TOKEN inválido: o Discord recusou o login\./);
+        assert.ok(!bot.output.includes("nova tentativa"), "token recusado não deve ser tentado de novo");
+        assert.equal(fake.restRequests, 1);
       },
     ));
 

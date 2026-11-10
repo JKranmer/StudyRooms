@@ -1,0 +1,52 @@
+# Supervisão do bot na VM (F0-12). O Docker não filtra o código de saída na política de reinício,
+# por isso quem reinicia o bot é o systemd, e o compose fica com `restart: "no"`.
+#
+# Códigos de saída do bot (apps/bot/src/login-retry.ts):
+#   0  encerramento pedido (`docker compose stop`, `systemctl stop`, desligamento): não reinicia;
+#   78 erro de configuração (token, allowlist, BOT_DATABASE_URL, intents, pasta da fila; e, pelo
+#      script de início, `.env` ausente, compose inválido ou imagem não construída): não
+#      reinicia, porque reiniciar não conserta. Corrija e rode `systemctl restart`;
+#   1  outras falhas (e 137, morto pelo kernel): reinicia, com espera crescente.
+# Erro de rede no login não chega aqui: o bot tenta de novo dentro do processo, sem sair.
+#
+# Instalação (detalhes no runbook da VM, docs/runbooks/vm-bot.md):
+#   sudo install -m 644 deploy/systemd/studyrooms-bot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now studyrooms-bot
+# O caminho /opt/studyrooms é o clone do repositório na VM, com o `.env` real na raiz.
+
+[Unit]
+Description=StudyRooms bot (Discord)
+Documentation=file:///opt/studyrooms/docs/runbooks/vm-bot.md
+# Requires: parar ou reiniciar o Docker para e religa o bot junto.
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+# Sem limite de partidas: a espera crescente abaixo já impede o laço rápido, e um limite deixaria
+# o bot parado até alguém intervir.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/studyrooms
+# O script confere `.env`, compose e imagem (sem eles, sai com 78) e então vira o
+# `docker compose up` em primeiro plano, preso ao container do bot, com o código de saída dele.
+# `--no-build`: a imagem é construída antes, à mão (`docker compose build bot`), nunca no boot.
+# Chamado pelo `sh`, para não depender do bit de execução do checkout.
+ExecStart=/bin/sh /opt/studyrooms/deploy/systemd/studyrooms-bot-start.sh
+# SIGTERM ao bot, que encerra em até 3 s (o compose espera até 10 s, stop_grace_period).
+ExecStop=/usr/bin/docker compose --project-name studyrooms stop bot
+TimeoutStopSec=30
+Restart=on-failure
+# 130 e 143: o `docker compose up` interrompido pelo próprio systemd no `stop`; não é falha.
+SuccessExitStatus=130 143
+RestartPreventExitStatus=78
+# Espera crescente entre reinícios: 15 s, dobrando até 10 min (RestartSteps exige systemd 254 ou
+# mais novo, como no Ubuntu 24.04; em versões antigas, a espera fica fixa em 15 s). O contador
+# só zera num start ou restart manual: depois de 6 reinícios automáticos, toda queda espera
+# 10 min, mesmo que o bot tenha rodado dias entre elas. Para zerar: `systemctl restart`.
+RestartSec=15s
+RestartSteps=6
+RestartMaxDelaySec=10min
+
+[Install]
+WantedBy=multi-user.target

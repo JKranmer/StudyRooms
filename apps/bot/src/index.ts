@@ -12,14 +12,17 @@ import { createBotHandlers, type GuildView } from "./bot-handlers.ts";
 import { loadConfig } from "./config.ts";
 import { DiskQueue, type OpenResult } from "./event-queue.ts";
 import { createEventWriter } from "./event-writer.ts";
+import { createLoginLoop, EXIT_CONFIG, gatewayCloseExitCode, queueOpenExitCode } from "./login-retry.ts";
 import { toRow } from "./raw-event.ts";
 import { createShutdown } from "./shutdown.ts";
 import { quoteForLog } from "./voice-event.ts";
 
+// Códigos de saída (veja login-retry.ts): 0 no encerramento pedido; 78 para erro de configuração,
+// que o systemd da VM não reinicia; 1 para as demais falhas, que ele reinicia.
 const config = loadConfig(process.env);
 if (!config.ok) {
   console.error(`[bot] erro: ${config.error}`);
-  process.exit(1);
+  process.exit(EXIT_CONFIG);
 }
 for (const warning of config.warnings) console.warn(`[bot] aviso: ${warning}`);
 
@@ -29,14 +32,20 @@ let opened: OpenResult;
 try {
   opened = DiskQueue.open(config.queueDir);
 } catch (error) {
+  const code = findErrorCode(error);
   console.error(
-    `[fila] erro: não foi possível abrir a fila em disco (código: ${findErrorCode(error) ?? "desconhecido"}). Confira BOT_QUEUE_DIR.`,
+    `[fila] erro: não foi possível abrir a fila em disco (código: ${code ?? "desconhecido"}). Confira BOT_QUEUE_DIR.`,
   );
-  process.exit(1);
+  process.exit(queueOpenExitCode(code));
 }
 if (opened.loaded > 0) console.log(`[fila] ${opened.loaded} evento(s) pendente(s) de uma execução anterior.`);
-if (opened.damaged > 0) {
+if (opened.damaged > 0 && opened.quarantineError === null) {
   console.warn(`[fila] aviso: ${opened.damaged} linha(s) ilegível(is) separada(s) na quarentena.`);
+} else if (opened.damaged > 0) {
+  // Disco cheio não impede a subida: as linhas ficam na fila até caberem na quarentena.
+  console.warn(
+    `[fila] aviso: ${opened.damaged} linha(s) ilegível(is) mantida(s) na fila; a quarentena falhou (código: ${opened.quarantineError}). Libere espaço em disco.`,
+  );
 }
 
 let stopping = false;
@@ -69,12 +78,6 @@ async function closeStorage(): Promise<void> {
   }
 }
 
-// Só com GuildVoiceStates não chega GUILD_CREATE: o cache de canais fica vazio, sem nome de
-// canal e sem o estado de voz inicial. Nenhuma das duas intents é privilegiada, e o bot não lê mensagens.
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
-});
-
 const handlers = createBotHandlers({
   allowlist: config.allowlist,
   log: (line) => console.log(line),
@@ -92,39 +95,72 @@ function guildView(guild: Guild): GuildView {
   };
 }
 
-client.on(Events.VoiceStateUpdate, (_oldState, newState) => {
-  handlers.onVoiceState(guildView(newState.guild), newState.id, newState.channelId);
-});
+/**
+ * Um cliente novo por tentativa de login: depois de um login que falhou, o discord.js destrói o
+ * cliente, e o gerenciador de WebSocket dele fica marcado como destruído, sem reconectar mais.
+ */
+function createClient(): Client {
+  // Só com GuildVoiceStates não chega GUILD_CREATE: o cache de canais fica vazio, sem nome de
+  // canal e sem o estado de voz inicial. Nenhuma das duas intents é privilegiada, e o bot não lê mensagens.
+  const created = new Client({
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
+  });
 
-client.once(Events.ClientReady, (ready) => {
-  console.log(`[bot] conectado como ${quoteForLog(ready.user.tag)}; servidores: ${ready.guilds.cache.size}.`);
-  if (ready.guilds.cache.size === 0) {
-    const invite = ready.generateInvite({
-      scopes: [OAuth2Scopes.Bot],
-      permissions: [PermissionFlagsBits.ViewChannel],
-    });
-    console.log(`[bot] aviso: o bot não está em nenhum servidor. Convite: ${invite}`);
-  }
-  handlers.onClientReady(ready.guilds.cache.map(guildView));
-});
+  created.on(Events.VoiceStateUpdate, (_oldState, newState) => {
+    handlers.onVoiceState(guildView(newState.guild), newState.id, newState.channelId);
+  });
 
-client.on(Events.GuildAvailable, (guild) => handlers.onGuildAvailable(guildView(guild)));
-client.on(Events.GuildCreate, (guild) => handlers.onGuildAvailable(guildView(guild)));
+  created.once(Events.ClientReady, (ready) => {
+    console.log(`[bot] conectado como ${quoteForLog(ready.user.tag)}; servidores: ${ready.guilds.cache.size}.`);
+    if (ready.guilds.cache.size === 0) {
+      const invite = ready.generateInvite({
+        scopes: [OAuth2Scopes.Bot],
+        permissions: [PermissionFlagsBits.ViewChannel],
+      });
+      console.log(`[bot] aviso: o bot não está em nenhum servidor. Convite: ${invite}`);
+    }
+    handlers.onClientReady(ready.guilds.cache.map(guildView));
+  });
 
-client.on(Events.ShardReconnecting, () => handlers.onReconnecting());
-client.on(Events.ShardResume, (_shardId, replayed) => handlers.onResume(replayed));
-client.on(Events.ShardReady, () => handlers.onShardReady());
-client.on(Events.ShardError, (error) => handlers.onShardError(error));
+  created.on(Events.GuildAvailable, (guild) => handlers.onGuildAvailable(guildView(guild)));
+  created.on(Events.GuildCreate, (guild) => handlers.onGuildAvailable(guildView(guild)));
 
-// Só os códigos sem reconexão chegam aqui (token revogado, intent recusada): o bot ficaria
-// ligado e surdo, então é melhor encerrar com erro e deixar quem o supervisiona ver a falha.
-client.on(Events.ShardDisconnect, (event) => {
-  handlers.onDisconnect(event.code);
-  shutdown(1);
-});
+  created.on(Events.ShardReconnecting, () => handlers.onReconnecting());
+  created.on(Events.ShardResume, (_shardId, replayed) => handlers.onResume(replayed));
+  created.on(Events.ShardReady, () => handlers.onShardReady());
+  created.on(Events.ShardError, (error) => handlers.onShardError(error));
 
-client.on(Events.Error, (error) => {
-  console.error(`[bot] erro do cliente: ${error.name}`);
+  // Só os códigos sem reconexão chegam aqui: o bot ficaria ligado e surdo, então é melhor encerrar
+  // com erro e deixar quem o supervisiona ver a falha. Token revogado (4004) e intent recusada
+  // (4013, 4014) saem com o código de configuração, para o systemd não reiniciar em laço.
+  created.on(Events.ShardDisconnect, (event) => {
+    handlers.onDisconnect(event.code);
+    shutdown(gatewayCloseExitCode(event.code));
+  });
+
+  created.on(Events.Error, (error) => {
+    console.error(`[bot] erro do cliente: ${error.name}`);
+  });
+  return created;
+}
+
+let client = createClient();
+
+const loginLoop = createLoginLoop({
+  attempt: async (n) => {
+    if (n > 1) {
+      client.removeAllListeners();
+      client = createClient();
+    }
+    await client.login(config.token);
+  },
+  log: (line) => {
+    if (line.startsWith("[bot] erro")) console.error(line);
+    else if (line.startsWith("[bot] aviso")) console.warn(line);
+    else console.log(line);
+  },
+  setTimer: (fn, ms) => setTimeout(fn, ms),
+  clearTimer: (handle) => clearTimeout(handle as NodeJS.Timeout),
 });
 
 // Com login ou reconexão pendentes (Hello ou READY sem chegar), `client.destroy()` não resolve:
@@ -132,7 +168,10 @@ client.on(Events.Error, (error) => {
 // que não tem tratamento padrão de sinal: sem estes handlers, o SIGTERM seria ignorado.
 const shutdown = createShutdown({
   graceMs: 3_000,
-  stop: () => handlers.stop(),
+  stop: () => {
+    loginLoop.cancel();
+    handlers.stop();
+  },
   destroy: () => Promise.all([client.destroy(), closeStorage()]),
   exit: (code) => process.exit(code),
   setTimer: (fn, ms) => setTimeout(fn, ms),
@@ -140,16 +179,12 @@ const shutdown = createShutdown({
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
 
-// Só o código do erro é impresso, para nada sensível chegar ao console. Aqui não se usa
-// process.exit: logo após a falha do login, ele aborta o Node no Windows (assert da libuv).
-client.login(config.token).catch(async (error: { code?: unknown; name?: unknown }) => {
-  const code = String(error.code ?? error.name ?? "desconhecido");
-  console.error(
-    code === "TokenInvalid"
-      ? "[bot] erro: DISCORD_BOT_TOKEN inválido: o Discord recusou o login. Gere outro token no portal."
-      : `[bot] erro: não foi possível conectar ao Discord (código: ${code}).`,
-  );
-  process.exitCode = 1;
+// Erro de rede no login é tentado de novo dentro do processo (login-retry.ts); só o código do
+// erro é impresso, para nada sensível chegar ao console. Aqui não se usa process.exit: logo após a
+// falha do login, ele aborta o Node no Windows (assert da libuv).
+void loginLoop.run().then(async (outcome) => {
+  if (outcome.status !== "failed") return;
+  process.exitCode = outcome.exitCode;
   handlers.stop();
   await Promise.all([client.destroy(), closeStorage()]);
 });
