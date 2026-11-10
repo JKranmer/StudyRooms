@@ -94,6 +94,11 @@ function replaceDurably(write: WriteFn, dir: string, path: string, text: string)
   }
 }
 
+/** Troca o conteúdo de um arquivo da pasta da fila de uma vez (para as ferramentas de quarentena). */
+export function replaceFile(dir: string, path: string, text: string): void {
+  replaceDurably(writeSync, dir, path, text);
+}
+
 export type DiskQueueOptions = { write?: WriteFn };
 
 function serialize(events: readonly QueuedEvent[]): string {
