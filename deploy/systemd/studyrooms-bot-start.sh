@@ -14,6 +14,12 @@ fi
 # Cada checagem tem prazo: com o dockerd travado (vivo, sem responder), o script não pode ficar
 # parado com a unidade `active` e sem bot. Prazo vencido (124 do `timeout`) é passageiro: sai com 1.
 CHECK_TIMEOUT="${STUDYROOMS_CHECK_TIMEOUT:-30}"
+case "$CHECK_TIMEOUT" in
+  '' | *[!0-9]* | 0)
+    echo "[systemd] erro: STUDYROOMS_CHECK_TIMEOUT inválido; use um número inteiro de segundos maior que 0." >&2
+    exit 78
+    ;;
+esac
 
 timeout "$CHECK_TIMEOUT" docker compose --project-name studyrooms config --quiet >/dev/null 2>&1
 status=$?
