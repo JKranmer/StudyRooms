@@ -54,10 +54,31 @@ O comando:
 - aplica as permissões de [`packages/db/sql/roles.sql`](../../packages/db/sql/roles.sql): o bot só insere, sem escolher `id` nem `recorded_at`; o backup só lê, inclusive tabelas de migrations futuras;
 - grava as duas conexões novas no arquivo `.env.neon.local`, na raiz do projeto, **sem imprimi-las**. O arquivo fica fora do Git (regra `.env.*` do `.gitignore`).
 
+Tudo roda numa só transação, e o arquivo é gravado antes de ela ser confirmada: se algo falhar, nenhum papel, senha ou permissão fica pela metade, e o `.env.neon.local` da tentativa é apagado. Os papéis nascem sem `LOGIN`; ele só vem junto com a senha.
+
+A senha vai em texto no `ALTER ROLE`, porque o Neon recusa senha já convertida em hash (erro `XX000`). O servidor guarda só o hash. O texto pode aparecer no log do servidor, que no Neon não é exposto a ninguém fora da equipe do Neon; ainda assim, se desconfiar de vazamento, troque as senhas (veja [Trocar as senhas](#trocar-as-senhas)).
+
 Depois:
 
 1. Abra o `.env.neon.local` e copie as linhas `NEON_BOT_URL=...` e `NEON_BACKUP_URL=...` para o `.env`.
 2. **Apague o `.env.neon.local`.** Enquanto ele existir, o comando se recusa a rodar de novo, para não sobrescrever uma senha ainda não copiada.
+
+### Se o `neon roles` falhar
+
+O erro diz em qual etapa parou e, quando não há segredo nela, a mensagem do servidor (senhas, hashes, hosts e URLs saem filtrados):
+
+```
+erro: falhou ao definir a senha do bot (código XX000): <mensagem do servidor>.
+Nada foi aplicado (a transação foi desfeita). Pode rodar de novo; veja Problemas comuns no runbook.
+```
+
+As etapas, na ordem: conectar ao banco, ler os papéis existentes, criar os papéis, ajustar NOINHERIT e o limite de conexões, deixar o backup só leitura, aplicar as permissões do bot, do backup e as permissões padrão do backup, definir a senha do bot e a do backup, gravar as conexões novas e confirmar a transação (commit).
+
+1. Copie as duas linhas do erro (não têm segredo) e mande para quem estiver ajudando.
+2. Corrigida a causa, rode `neon roles` de novo. Como nada ficou, o esperado é `criado` para os dois papéis.
+3. Se a falha foi em **confirmar a transação**, não dá para saber se o commit chegou ao Neon: rode `neon roles --rotate`.
+4. Se o comando foi interrompido (Ctrl+C, queda de energia) entre gravar o `.env.neon.local` e confirmar a transação, o arquivo fica com senhas que não valem, e o `neon check` dá `28P01`. Apague o arquivo e rode `neon roles --rotate`.
+5. Se aparecer `já existia; senha mantida` para um papel cuja conexão você não tem no `.env` (o comando avisa), rode `neon roles --rotate`.
 
 Não crie esses papéis pelo painel do Neon: papéis criados por lá recebem o `neon_superuser`, com poder demais para o bot.
 
@@ -154,7 +175,7 @@ Quem deixa de consentir sai da lista e, se pedir, tem todos os eventos apagados.
 
 ## Problemas comuns
 
-O erro aparece só como código, nunca com a URL.
+O erro aparece como código, nunca com a URL. O `neon roles` mostra também a etapa e a mensagem do servidor, filtrada.
 
 | Código | Causa provável | O que fazer |
 |---|---|---|
@@ -165,5 +186,6 @@ O erro aparece só como código, nunca com a URL.
 | `ENOTFOUND`, `EAI_AGAIN` | Host errado ou sem internet | Copie a URL de novo |
 | `3D000` | Banco inexistente | O banco do Neon é `neondb`, salvo se você criou outro |
 | `42501` | Permissão negada | No `check`, é falha de permissão: rode `neon roles` de novo (ele reaplica as permissões) |
+| `XX000` | Erro interno do servidor; no Neon, em geral uma regra da extensão do Neon | No `neon roles`, a etapa e a mensagem dizem qual comando foi recusado. Mande as duas linhas do erro |
 | `53300` | Conexões demais | O bot tem limite de 3 conexões, e o backup, de 2. Confira se não há dois bots rodando |
 | `SELF_SIGNED_CERT_IN_CHAIN`, `UNABLE_TO_VERIFY_LEAF_SIGNATURE` | Antivírus ou proxy inspecionando o TLS | Desligue a inspeção de HTTPS para `*.neon.tech` |

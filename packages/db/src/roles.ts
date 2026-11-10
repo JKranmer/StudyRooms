@@ -2,6 +2,7 @@ import { createHash, createHmac, pbkdf2Sync, randomBytes, randomUUID } from "nod
 import { readFileSync } from "node:fs";
 import pg from "pg";
 import { findErrorCode } from "./errors.ts";
+import { RoleSetupError } from "./role-errors.ts";
 
 /** Papel que o bot usa no Neon: só insere em raw_voice_events (exceção da D-26, até a F1-20). */
 export const BOT_ROLE = "studyrooms_bot";
@@ -21,8 +22,9 @@ const SCRAM_ITERATIONS = 4096;
 
 /**
  * Verificador SCRAM-SHA-256 no formato que o Postgres guarda (RFC 5802 e 7677), calculado aqui:
- * o `ALTER ROLE ... PASSWORD` leva só o hash, e a senha nunca aparece no comando nem no log do
- * servidor (`log_statement`). A senha gerada só tem ASCII, então o SASLprep não a altera.
+ * com `passwordFormat: "scram"`, o `ALTER ROLE ... PASSWORD` leva só o hash, e a senha nunca
+ * aparece no comando nem no log do servidor (`log_statement`). O Neon não aceita esse formato
+ * (veja `PasswordFormat`). A senha gerada só tem ASCII, então o SASLprep não a altera.
  */
 export function scramVerifier(password: string, salt: Buffer = randomBytes(16)): string {
   const salted = pbkdf2Sync(password, salt, SCRAM_ITERATIONS, 32, "sha256");
@@ -68,40 +70,124 @@ export type RoleSetupResult = {
   passwords: { bot?: string; backup?: string };
 };
 
+/** Senha de uma URL de conexão, como vem e decodificada, para ser filtrada de mensagens de erro. */
+function urlPasswords(url: string): string[] {
+  try {
+    const raw = new URL(url).password;
+    if (!raw) return [];
+    let decoded = raw;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      // Codificação inválida: fica só a forma crua.
+    }
+    return [...new Set([raw, decoded])];
+  } catch {
+    return [];
+  }
+}
+
+/** Um bloco de `sql/roles.sql`, aberto por uma linha `-- etapa: <nome>`. */
+export type RolesSqlStep = { stage: string; sql: string };
+
+/** Divide `sql/roles.sql` nas etapas marcadas, para cada uma rodar (e falhar) à parte. */
+export function rolesSqlSteps(sql: string = rolesSql()): RolesSqlStep[] {
+  const steps: RolesSqlStep[] = [];
+  let current: { stage: string; lines: string[] } | undefined;
+  for (const line of sql.split(/\r?\n/)) {
+    const marker = /^--\s*etapa:\s*(.+?)\s*$/.exec(line);
+    if (marker) {
+      if (current) steps.push({ stage: current.stage, sql: current.lines.join("\n").trim() });
+      current = { stage: marker[1]!, lines: [] };
+    } else if (current) {
+      current.lines.push(line);
+    } else if (line.trim() !== "" && !line.trim().startsWith("--")) {
+      throw new Error("roles.sql: comando antes da primeira linha `-- etapa:`");
+    }
+  }
+  if (current) steps.push({ stage: current.stage, sql: current.lines.join("\n").trim() });
+  return steps;
+}
+
+/**
+ * Como a senha vai no `ALTER ROLE ... PASSWORD`:
+ * - `plaintext`: a senha em texto, e o servidor calcula o SCRAM. É o que o Neon aceita: a extensão
+ *   dele repassa a senha ao painel e recusa verificador pronto com erro XX000. O texto pode ir para
+ *   o log do servidor, que no Neon não é exposto ao usuário.
+ * - `scram`: o verificador SCRAM-SHA-256 calculado aqui; a senha não sai da máquina. Para Postgres
+ *   comum.
+ */
+export type PasswordFormat = "plaintext" | "scram";
+
+export type SetupRolesOptions = {
+  /** Troca a senha dos papéis que já existem. Sem isso, papel existente mantém a senha. */
+  rotate?: boolean;
+  passwordFormat?: PasswordFormat;
+  generate?: () => string;
+  /**
+   * Roda depois de tudo aplicado e antes do commit, com as senhas novas. Se lançar, nada é
+   * confirmado: o CLI grava aqui o `.env.neon.local`, para nunca confirmar uma senha não guardada.
+   */
+  beforeCommit?: (result: RoleSetupResult) => void | Promise<void>;
+};
+
 /**
  * Cria os papéis do bot e do backup e aplica as permissões de `sql/roles.sql`. Papel que já existe
- * mantém a senha, a não ser com `rotate`. Precisa das migrations aplicadas antes.
+ * mantém a senha, a não ser com `rotate`. Precisa das migrations aplicadas antes. Tudo numa só
+ * transação: se algo falhar, nada fica. A falha vem como `RoleSetupError`, com a etapa.
  */
-export async function setupRoles(
-  adminUrl: string,
-  options: { rotate?: boolean; generate?: () => string } = {},
-): Promise<RoleSetupResult> {
+export async function setupRoles(adminUrl: string, options: SetupRolesOptions = {}): Promise<RoleSetupResult> {
   const generate = options.generate ?? generatePassword;
-  return withClient(adminUrl, async (client) => {
-    const existing = await client.query<{ rolname: string }>("select rolname from pg_roles where rolname = any($1)", [
-      [BOT_ROLE, BACKUP_ROLE],
-    ]);
-    const exists = new Set(existing.rows.map((row) => row.rolname));
-    await client.query("begin");
+  const format = options.passwordFormat ?? "scram";
+  // Tudo o que é segredo e pode aparecer numa mensagem de erro, para ser filtrado dela.
+  const secrets: string[] = urlPasswords(adminUrl);
+  const step = async <T>(stage: string, fn: () => Promise<T>): Promise<T> => {
     try {
-      await client.query(rolesSql());
+      return await fn();
+    } catch (error) {
+      if (error instanceof RoleSetupError) throw error;
+      throw new RoleSetupError(stage, error, secrets);
+    }
+  };
+
+  const client = new pg.Client({ connectionString: adminUrl, connectionTimeoutMillis: 15_000 });
+  try {
+    await step("conectar ao banco", () => client.connect());
+    const existing = await step("ler os papéis existentes", () =>
+      client.query<{ rolname: string }>("select rolname from pg_roles where rolname = any($1)", [[BOT_ROLE, BACKUP_ROLE]]),
+    );
+    const exists = new Set(existing.rows.map((row) => row.rolname));
+    await step("abrir a transação", () => client.query("begin"));
+    try {
+      for (const { stage, sql } of rolesSqlSteps()) {
+        await step(stage, () => client.query(sql));
+      }
       const result: RoleSetupResult = { bot: "kept", backup: "kept", passwords: {} };
       for (const [key, role] of [["bot", BOT_ROLE], ["backup", BACKUP_ROLE]] as const) {
         if (exists.has(role) && !options.rotate) continue;
         const password = generate();
-        if (!PASSWORD.test(password)) throw new Error("senha gerada fora do formato esperado");
-        // ALTER ROLE não aceita parâmetro; o verificador só tem base64, `$` e `:`.
-        await client.query(`alter role ${role} with login password '${scramVerifier(password)}'`);
+        if (!PASSWORD.test(password)) {
+          throw new RoleSetupError(`definir a senha do ${key}`, new Error("senha gerada fora do formato esperado"));
+        }
+        secrets.push(password);
+        const secret = format === "scram" ? scramVerifier(password) : password;
+        secrets.push(secret);
+        // ALTER ROLE não aceita parâmetro. A senha só tem [A-Za-z0-9_-], e o verificador, base64,
+        // `$` e `:`: nenhum dos dois fecha a aspa.
+        await step(`definir a senha do ${key}`, () => client.query(`alter role ${role} with login password '${secret}'`));
         result[key] = exists.has(role) ? "rotated" : "created";
         result.passwords[key] = password;
       }
-      await client.query("commit");
+      if (options.beforeCommit) await step("gravar as conexões novas", async () => options.beforeCommit!(result));
+      await step("confirmar a transação (commit)", () => client.query("commit"));
       return result;
     } catch (error) {
       await client.query("rollback").catch(() => {});
       throw error;
     }
-  });
+  } finally {
+    await client.end().catch(() => {});
+  }
 }
 
 export type AccessCheck = { name: string; ok: boolean; code?: string };

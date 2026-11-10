@@ -12,6 +12,7 @@ import {
   forgetUser,
   insertRawVoiceEvents,
   pingDatabase,
+  RoleSetupError,
   roleUrl,
   runMigrations,
   scramVerifier,
@@ -71,6 +72,36 @@ function join(user: string): NewRawVoiceEvent {
 
 let passwords: { bot?: string; backup?: string };
 
+/**
+ * Faz o `ALTER ROLE ... PASSWORD` do papel `role` falhar como no Neon real (XX000), com o segredo
+ * enviado ecoado na mensagem, para conferir que ele é filtrado. Devolve os comandos enviados.
+ */
+function failPasswordLikeNeon(role: string) {
+  const sent: string[] = [];
+  const realQuery = pg.Client.prototype.query;
+  const spy = vi.spyOn(pg.Client.prototype, "query").mockImplementation(function (this: pg.Client, ...args: unknown[]) {
+    const sql = typeof args[0] === "string" ? args[0] : JSON.stringify(args[0]);
+    sent.push(sql);
+    const literal = new RegExp(`^alter role ${role} with login password '([^']*)'$`).exec(sql);
+    if (literal) {
+      return Promise.reject(
+        Object.assign(new Error(`Neon only supports being given plaintext passwords (got ${literal[1]})`), { code: "XX000" }),
+      );
+    }
+    return (realQuery as (...a: unknown[]) => unknown).apply(this, args);
+  } as never);
+  return { sent, restore: () => spy.mockRestore() };
+}
+
+async function roleNames(): Promise<string[]> {
+  const result = await withClient(ownerUrl, (client) =>
+    client.query<{ rolname: string }>("select rolname from pg_roles where rolname = any($1) order by 1", [[BOT_ROLE, BACKUP_ROLE]]),
+  );
+  return result.rows.map((row) => row.rolname);
+}
+
+let firstAttempt: { error: unknown; rolesAfter: string[]; sent: string[] };
+
 beforeAll(async () => {
   container = await startPostgres();
   await withClient(container.getConnectionUri(), async (client) => {
@@ -79,7 +110,19 @@ beforeAll(async () => {
   });
   ownerUrl = urlFor("neondb_owner", "dono-falso");
   await runMigrations(ownerUrl);
-  const result = await setupRoles(ownerUrl);
+  // Primeira tentativa como no Neon real: o verificador SCRAM é recusado com XX000.
+  const neon = failPasswordLikeNeon(BOT_ROLE);
+  let error: unknown;
+  try {
+    await setupRoles(ownerUrl, { passwordFormat: "scram" });
+  } catch (caught) {
+    error = caught;
+  } finally {
+    neon.restore();
+  }
+  firstAttempt = { error, rolesAfter: await roleNames(), sent: neon.sent };
+  // Segunda, depois da falha, pelo caminho do CLI no Neon (senha em texto).
+  const result = await setupRoles(ownerUrl, { passwordFormat: "plaintext" });
   passwords = result.passwords;
   botUrl = roleUrl(ownerUrl, BOT_ROLE, passwords.bot!);
   backupUrl = roleUrl(ownerUrl, BACKUP_ROLE, passwords.backup!);
@@ -90,6 +133,23 @@ afterAll(async () => {
 });
 
 describe("setupRoles", () => {
+  test("XX000 ao definir a senha: diz a etapa, filtra o segredo e não deixa nada", () => {
+    const { error, rolesAfter, sent } = firstAttempt;
+    expect(error).toBeInstanceOf(RoleSetupError);
+    const failure = error as RoleSetupError;
+    expect(failure.stage).toBe("definir a senha do bot");
+    expect(failure.code).toBe("XX000");
+    expect(failure.serverMessage).toMatch(/^Neon only supports being given plaintext passwords/);
+    const verifier = /password '([^']*)'/.exec(sent.find((sql) => sql.includes("password")) ?? "")?.[1];
+    expect(verifier).toMatch(/^SCRAM-SHA-256\$/);
+    expect(failure.message).not.toContain(verifier!);
+    expect(failure.message).not.toContain(verifier!.slice(14, 40));
+    expect(failure.message).toMatch(/^falhou ao definir a senha do bot \(código XX000\): Neon only supports/);
+    // Tudo numa transação: o papel criado sem senha antes da falha não sobrou.
+    expect(rolesAfter).toEqual([]);
+    expect(sent.at(-1)).toBe("rollback");
+  });
+
   test("cria os dois papéis com senhas fortes e diferentes, sem superpoderes", async () => {
     expect(passwords.bot).toMatch(/^[A-Za-z0-9_-]{40,}$/);
     expect(passwords.backup).toMatch(/^[A-Za-z0-9_-]{40,}$/);
@@ -117,6 +177,87 @@ describe("setupRoles", () => {
     passwords = rotated.passwords;
     botUrl = roleUrl(ownerUrl, BOT_ROLE, passwords.bot!);
     backupUrl = roleUrl(ownerUrl, BACKUP_ROLE, passwords.backup!);
+    expect(await sqlState(botUrl, "select 1")).toBeNull();
+  });
+
+  test("senha em texto (caminho do Neon): o servidor guarda só o SCRAM", async () => {
+    const stored = await withClient(container.getConnectionUri(), (c) =>
+      c.query<{ rolname: string; rolpassword: string; rolcanlogin: boolean }>(
+        "select rolname, rolpassword, rolcanlogin from pg_authid where rolname = any($1) order by 1",
+        [[BOT_ROLE, BACKUP_ROLE]],
+      ),
+    );
+    for (const row of stored.rows) {
+      expect(row.rolcanlogin).toBe(true);
+      expect(row.rolpassword).toMatch(/^SCRAM-SHA-256\$4096:/);
+    }
+  });
+
+  test("XX000 na senha do backup durante o rotate desfaz também a troca do bot", async () => {
+    const neon = failPasswordLikeNeon(BACKUP_ROLE);
+    let error: unknown;
+    try {
+      await setupRoles(ownerUrl, { rotate: true, passwordFormat: "plaintext" });
+    } catch (caught) {
+      error = caught;
+    } finally {
+      neon.restore();
+    }
+    expect(error).toBeInstanceOf(RoleSetupError);
+    expect((error as RoleSetupError).stage).toBe("definir a senha do backup");
+    // A senha em texto ecoada na mensagem é filtrada.
+    const sentPassword = /password '([^']*)'/.exec(neon.sent.find((sql) => sql.startsWith(`alter role ${BACKUP_ROLE} with`)) ?? "")?.[1];
+    expect(sentPassword).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect((error as Error).message).not.toContain(sentPassword!);
+    expect(await sqlState(botUrl, "select 1")).toBeNull();
+    expect(await sqlState(backupUrl, "select 1")).toBeNull();
+  });
+
+  test("se não der para gravar as conexões, nenhuma senha nova é confirmada", async () => {
+    const error = await setupRoles(ownerUrl, {
+      rotate: true,
+      passwordFormat: "plaintext",
+      beforeCommit: () => {
+        throw Object.assign(new Error("EEXIST: file already exists"), { code: "EEXIST" });
+      },
+    }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(RoleSetupError);
+    expect((error as RoleSetupError).stage).toBe("gravar as conexões novas");
+    expect((error as RoleSetupError).code).toBe("EEXIST");
+    expect(await sqlState(botUrl, "select 1")).toBeNull();
+    expect(await sqlState(backupUrl, "select 1")).toBeNull();
+  });
+
+  test("beforeCommit recebe as senhas que serão confirmadas", async () => {
+    let seen: { bot?: string; backup?: string } = {};
+    const rotated = await setupRoles(ownerUrl, {
+      rotate: true,
+      passwordFormat: "plaintext",
+      beforeCommit: (pending) => {
+        seen = { ...pending.passwords };
+      },
+    });
+    expect(seen).toEqual(rotated.passwords);
+    passwords = rotated.passwords;
+    botUrl = roleUrl(ownerUrl, BOT_ROLE, passwords.bot!);
+    backupUrl = roleUrl(ownerUrl, BACKUP_ROLE, passwords.backup!);
+    expect(await sqlState(botUrl, "select 1")).toBeNull();
+  });
+
+  test("papel que ficou sem senha: sem rotate continua sem; com rotate volta a entrar", async () => {
+    await withClient(ownerUrl, (c) => c.query(`alter role ${BACKUP_ROLE} password null`));
+    expect(await sqlState(backupUrl, "select 1")).toBe("28P01");
+    expect(await setupRoles(ownerUrl, { passwordFormat: "plaintext" })).toEqual({
+      bot: "kept",
+      backup: "kept",
+      passwords: {},
+    });
+    expect(await sqlState(backupUrl, "select 1")).toBe("28P01");
+    const rotated = await setupRoles(ownerUrl, { rotate: true, passwordFormat: "plaintext" });
+    passwords = rotated.passwords;
+    botUrl = roleUrl(ownerUrl, BOT_ROLE, passwords.bot!);
+    backupUrl = roleUrl(ownerUrl, BACKUP_ROLE, passwords.backup!);
+    expect(await sqlState(backupUrl, "select 1")).toBeNull();
     expect(await sqlState(botUrl, "select 1")).toBeNull();
   });
 

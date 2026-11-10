@@ -1,8 +1,9 @@
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { findErrorCode } from "./errors.ts";
 import { runMigrations } from "./migrate.ts";
 import { checkNeonUrl } from "./neon-url.ts";
+import { RoleSetupError } from "./role-errors.ts";
 import {
   BACKUP_ROLE,
   BOT_ROLE,
@@ -12,6 +13,7 @@ import {
   pingDatabase,
   roleUrl,
   setupRoles,
+  type RoleSetupResult,
 } from "./roles.ts";
 
 // Comandos do Neon (F1-48), rodados na máquina local: `pnpm --filter @studyrooms/db neon <comando>`.
@@ -73,23 +75,51 @@ async function main(args: string[]): Promise<void> {
         );
         process.exit(EXIT_CONFIG);
       }
-      const result = await setupRoles(url, { rotate });
+      let wrote = false;
+      let result: RoleSetupResult;
+      try {
+        result = await setupRoles(url, {
+          rotate,
+          // O Neon recusa verificador SCRAM pronto (XX000): a senha vai em texto (veja roles.ts).
+          passwordFormat: "plaintext",
+          // Grava o arquivo antes do commit: se não der para gravar, nenhuma senha nova é confirmada.
+          beforeCommit: (pending) => {
+            const lines: string[] = [];
+            if (pending.passwords.bot) lines.push(`NEON_BOT_URL=${roleUrl(url, BOT_ROLE, pending.passwords.bot)}`);
+            if (pending.passwords.backup) {
+              lines.push(`NEON_BACKUP_URL=${roleUrl(url, BACKUP_ROLE, pending.passwords.backup)}`);
+            }
+            if (lines.length === 0) return;
+            writeFileSync(
+              CREDENTIALS_FILE,
+              `# Gerado por \`neon roles\`. Segredo: copie para o .env (veja docs/runbooks/neon.md) e apague este arquivo.\n${lines.join("\n")}\n`,
+              { mode: 0o600, flag: "wx" },
+            );
+            wrote = true;
+          },
+        });
+      } catch (error) {
+        // Sem commit, as senhas do arquivo não valem: apaga, para a próxima tentativa poder rodar.
+        if (wrote) rmSync(CREDENTIALS_FILE, { force: true });
+        if (!(error instanceof RoleSetupError)) throw error;
+        console.error(`erro: ${error.message}.`);
+        console.error(
+          error.stage.startsWith("confirmar")
+            ? "O commit falhou: as senhas novas podem não valer. Rode de novo com --rotate; veja Problemas comuns no runbook."
+            : "Nada foi aplicado (a transação foi desfeita). Pode rodar de novo; veja Problemas comuns no runbook.",
+        );
+        process.exit(1);
+      }
       const label = { created: "criado", rotated: "senha trocada", kept: "já existia; senha mantida" };
       console.log(`Papel do bot (${BOT_ROLE}): ${label[result.bot]}.`);
       console.log(`Papel do backup (${BACKUP_ROLE}): ${label[result.backup]}.`);
       console.log("Permissões aplicadas.");
-      const lines: string[] = [];
-      if (result.passwords.bot) lines.push(`NEON_BOT_URL=${roleUrl(url, BOT_ROLE, result.passwords.bot)}`);
-      if (result.passwords.backup) lines.push(`NEON_BACKUP_URL=${roleUrl(url, BACKUP_ROLE, result.passwords.backup)}`);
-      if (lines.length > 0) {
-        writeFileSync(
-          CREDENTIALS_FILE,
-          `# Gerado por \`neon roles\`. Segredo: copie para o .env (veja docs/runbooks/neon.md) e apague este arquivo.\n${lines.join("\n")}\n`,
-          { mode: 0o600, flag: "wx" },
-        );
-        console.log("Conexões novas gravadas em .env.neon.local, na raiz (não impressas). Siga o runbook.");
-      } else {
-        console.log("Nenhuma senha nova. Para trocar as senhas, rode com --rotate.");
+      if (wrote) console.log("Conexões novas gravadas em .env.neon.local, na raiz (não impressas). Siga o runbook.");
+      else console.log("Nenhuma senha nova. Para trocar as senhas, rode com --rotate.");
+      for (const [key, name] of [["bot", "NEON_BOT_URL"], ["backup", "NEON_BACKUP_URL"]] as const) {
+        if (result[key] === "kept" && !process.env[name]?.trim()) {
+          console.warn(`aviso: o papel do ${key} já existia, mas ${name} não está no .env. Sem ela, rode com --rotate.`);
+        }
       }
       return;
     }

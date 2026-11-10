@@ -20,9 +20,14 @@ export {
   generatePassword,
   pingDatabase,
   roleUrl,
+  rolesSqlSteps,
   scramVerifier,
   setupRoles,
   type AccessCheck,
+  type PasswordFormat,
   type PingResult,
   type RoleSetupResult,
+  type RolesSqlStep,
+  type SetupRolesOptions,
 } from "./roles.ts";
+export { RoleSetupError, safeServerMessage } from "./role-errors.ts";
