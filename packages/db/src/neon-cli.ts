@@ -1,6 +1,7 @@
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { findErrorCode } from "./errors.ts";
+import { formatEventSummary, parseSummaryArgs, summarizeEvents } from "./event-summary.ts";
 import { runMigrations } from "./migrate.ts";
 import { checkNeonUrl } from "./neon-url.ts";
 import { RoleSetupError } from "./role-errors.ts";
@@ -24,6 +25,7 @@ import {
 //   roles [--rotate]   cria os papéis do bot e do backup (NEON_ADMIN_URL); grava as conexões
 //                      novas em .env.neon.local, sem imprimi-las
 //   check              confere SSL e permissões dos papéis (NEON_BOT_URL, NEON_BACKUP_URL)
+//   summary [--hours N]  eventos por tipo nas últimas N horas (padrão 24), sem IDs (NEON_BACKUP_URL)
 //   count <id>         conta os eventos de uma pessoa (NEON_ADMIN_URL)
 //   forget <id> --confirm   apaga os eventos de uma pessoa, a pedido (NEON_ADMIN_URL)
 
@@ -135,6 +137,17 @@ async function main(args: string[]): Promise<void> {
       if (failed > 0) process.exitCode = 1;
       return;
     }
+    case "summary": {
+      const parsed = parseSummaryArgs(rest);
+      if ("error" in parsed) {
+        console.error(`erro: ${parsed.error}`);
+        process.exit(EXIT_CONFIG);
+      }
+      const url = requireUrl("NEON_BACKUP_URL");
+      const summary = await summarizeEvents(url, { hours: parsed.hours });
+      for (const line of formatEventSummary(summary, parsed.hours)) console.log(line);
+      return;
+    }
     case "count": {
       const id = requireId(rest[0]);
       const url = requireUrl("NEON_ADMIN_URL");
@@ -154,7 +167,7 @@ async function main(args: string[]): Promise<void> {
       return;
     }
     default:
-      console.error("uso: neon ping | migrate | roles [--rotate] | check | count <id> | forget <id> --confirm");
+      console.error("uso: neon ping | migrate | roles [--rotate] | check | summary [--hours N] | count <id> | forget <id> --confirm");
       process.exit(EXIT_CONFIG);
   }
 }
