@@ -1,4 +1,4 @@
--- Papéis da coleta antecipada no Neon (F1-48). Aplicado por `pnpm --filter @studyrooms/db neon:roles`,
+-- Papéis da coleta antecipada no Neon (F1-48). Aplicado por `pnpm --filter @studyrooms/db neon roles`,
 -- com o papel dono do banco (neondb_owner), depois das migrations. Pode rodar de novo: só ajusta.
 -- As senhas não ficam aqui: o comando as gera e define à parte.
 --
