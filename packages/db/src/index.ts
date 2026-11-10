@@ -11,3 +11,18 @@ export {
   type RawVoiceEvent,
   type RawVoiceEventType,
 } from "./schema.ts";
+export {
+  BACKUP_ROLE,
+  BOT_ROLE,
+  checkAccess,
+  countUserEvents,
+  forgetUser,
+  generatePassword,
+  pingDatabase,
+  roleUrl,
+  scramVerifier,
+  setupRoles,
+  type AccessCheck,
+  type PingResult,
+  type RoleSetupResult,
+} from "./roles.ts";

@@ -1,9 +1,10 @@
+import { sql } from "drizzle-orm";
 import type { Database } from "./client.ts";
-import { rawVoiceEvents, type NewRawVoiceEvent } from "./schema.ts";
+import type { NewRawVoiceEvent } from "./schema.ts";
 
 /**
- * Eventos por comando INSERT. Cada evento usa até 6 parâmetros, e o Postgres aceita no máximo
- * 65.535 por comando; 1.000 eventos (6.000 parâmetros) ficam longe do limite.
+ * Eventos por comando INSERT. Cada evento usa 7 parâmetros, e o Postgres aceita no máximo
+ * 65.535 por comando; 1.000 eventos (7.000 parâmetros) ficam longe do limite.
  */
 export const INSERT_CHUNK_SIZE = 1000;
 
@@ -33,13 +34,25 @@ export async function insertRawVoiceEvents(
   });
 }
 
-type Executor = Pick<Database, "insert">;
+type Executor = Pick<Database, "execute">;
 
+/**
+ * SQL escrito à mão, e não o `insert` do Drizzle, por causa do papel do bot no Neon (F1-48), que só
+ * pode inserir nestas 7 colunas: o Drizzle lista também `id` e `recorded_at` (com DEFAULT) e pede
+ * `RETURNING`, que exige permissão de leitura. Pelo mesmo motivo, o `ON CONFLICT` não nomeia a
+ * coluna (nomear exige leitura dela): a única restrição única que um evento pode violar é a da
+ * chave de idempotência, porque o `id` é gerado pelo banco. A contagem vem do `rowCount`: com
+ * `ON CONFLICT DO NOTHING`, só as linhas novas contam.
+ */
 async function insertChunk(db: Executor, events: readonly NewRawVoiceEvent[]): Promise<number> {
-  const inserted = await db
-    .insert(rawVoiceEvents)
-    .values([...events])
-    .onConflictDoNothing({ target: rawVoiceEvents.idempotencyKey })
-    .returning({ id: rawVoiceEvents.id });
-  return inserted.length;
+  const rows = events.map(
+    (e) =>
+      sql`(${e.idempotencyKey}, ${e.eventType}, ${e.discordUserId ?? null}, ${e.guildId ?? null}, ${e.fromChannelId ?? null}, ${e.toChannelId ?? null}, ${e.occurredAt.toISOString()})`,
+  );
+  const result = await db.execute(sql`
+    insert into raw_voice_events
+      (idempotency_key, event_type, discord_user_id, guild_id, from_channel_id, to_channel_id, occurred_at)
+    values ${sql.join(rows, sql`, `)}
+    on conflict do nothing`);
+  return result.rowCount ?? 0;
 }
