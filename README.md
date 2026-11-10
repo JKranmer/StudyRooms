@@ -110,7 +110,7 @@ O bot grava em `raw_voice_events` (coleta antecipada, D-26) entrada, saída, tro
 
 - **Só quem consentiu.** Quem não está em `BOT_TEST_ALLOWLIST_USER_IDS`, a lista de consentimento (D-29), não é gravado nem aparece no log. Mudo, transmissão e câmera não geram gravação.
 - **Fila em disco.** Cada evento é gravado primeiro num arquivo (`BOT_QUEUE_DIR`; fora do Docker, `.data/bot-queue`, fora do Git) e só sai de lá quando o banco confirma. Com o banco fora, o bot segue rodando e tenta de novo em 5 s, 15 s, 30 s, 1 min, 2 min e depois a cada 5 min. Matar o processo não perde a fila, e cada evento tem uma chave única, então o reenvio não duplica.
-- **Quarentena.** Um evento recusado pelo banco (dado inválido) vai para `quarantine.jsonl`, na mesma pasta, sem travar os outros. A fila e a quarentena têm IDs do Discord: não compartilhe esses arquivos.
+- **Quarentena.** Um evento recusado pelo banco (dado inválido) vai para `quarantine.jsonl`, na mesma pasta, sem travar os outros. A fila e a quarentena têm IDs do Discord: não compartilhe esses arquivos. `node apps/bot/src/quarantine-cli.ts resumo` mostra o que há nela sem imprimir IDs; corrigir, descartar e apagar os dados de uma pessoa estão no [runbook do Neon](docs/runbooks/neon.md#quarentena-quarantinejsonl).
 - **Acessos ao banco.** Sem eventos, o único acesso é o sinal a cada 30 min (D-19). Cada acesso aparece no log como `[db] <horário> acesso=N motivo=eventos|sinal ...`, para estimar as horas do Neon. O log mostra só o código do erro, nunca a mensagem nem a URL.
 
 ### Bot em Docker
@@ -146,6 +146,7 @@ pnpm --filter @studyrooms/bot test:integration  # bot e fila contra Postgres rea
 - **Testes precisam do Docker ligado.** O Testcontainers usa o `DOCKER_HOST` do Windows (`tcp://localhost:2375`). Com a distro `docker-engine` desligada, os testes falham com "Could not find a working container runtime strategy".
 - **Mudança de esquema.** Altere `packages/db/src/schema.ts` e rode `pnpm --filter @studyrooms/db generate`; a migration nova entra em `packages/db/drizzle/`. Migrations já aplicadas nunca são editadas nem apagadas, e nenhuma pode apagar eventos gravados.
 - **Dados.** `docker compose down` mantém o banco; `docker compose down -v` apaga o volume.
+- **Neon.** Migrations, papéis do bot (só insere) e do backup (só leitura), conferência de permissões e exclusão a pedido: `pnpm --filter @studyrooms/db neon ...`, com as variáveis `NEON_*`. Passo a passo em [`docs/runbooks/neon.md`](docs/runbooks/neon.md).
 
 Meta, **ainda não disponível** (o Wrangler não existe no repositório):
 
